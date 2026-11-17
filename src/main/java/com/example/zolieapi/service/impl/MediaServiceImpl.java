@@ -2,6 +2,7 @@ package com.example.zolieapi.service.impl;
 
 import com.example.zolieapi.common.Enums;
 import com.example.zolieapi.dto.request.UploadUrlRequest;
+import com.example.zolieapi.dto.response.MediaItemResponse;
 import com.example.zolieapi.dto.response.MediaResponse;
 import com.example.zolieapi.dto.response.UploadUrlResponse;
 import com.example.zolieapi.exception.ApiException;
@@ -19,6 +20,7 @@ import com.example.zolieapi.service.StorageService.StoredObject;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -143,6 +145,31 @@ public class MediaServiceImpl implements MediaService {
             }
         }
         return urls;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, MediaItemResponse> items(Collection<UUID> mediaIds) {
+        Set<UUID> ids = mediaIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<UUID, MediaItemResponse> items = new HashMap<>();
+        if (ids.isEmpty()) {
+            return items;
+        }
+        for (MediaAsset asset : mediaAssetRepository.findAllById(ids)) {
+            String url = asset.getStatus() == MediaStatus.READY ? storageService.downloadUrl(asset.getObjectKey()) : null;
+            items.put(asset.getId(), new MediaItemResponse(asset.getId(), Enums.value(asset.getKind()), url,
+                    asset.getWidth(), asset.getHeight(), asset.getDurationMs()));
+        }
+        return items;
+    }
+
+    @Override
+    @Transactional
+    public void deleteAll(Collection<UUID> mediaIds) {
+        List<UUID> ids = mediaIds.stream().filter(Objects::nonNull).toList();
+        if (!ids.isEmpty()) {
+            mediaAssetRepository.deleteAllByIdInBatch(ids);
+        }
     }
 
     private MediaPurpose parsePurpose(String purpose) {

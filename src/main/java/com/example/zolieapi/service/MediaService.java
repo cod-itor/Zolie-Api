@@ -1,6 +1,7 @@
 package com.example.zolieapi.service;
 
 import com.example.zolieapi.dto.request.UploadUrlRequest;
+import com.example.zolieapi.dto.response.MediaItemResponse;
 import com.example.zolieapi.dto.response.MediaResponse;
 import com.example.zolieapi.dto.response.UploadUrlResponse;
 import com.example.zolieapi.model.MediaAsset;
@@ -22,4 +23,8 @@ public interface MediaService {
     String url(UUID mediaId);
 
     Map<UUID, String> urls(Collection<UUID> mediaIds);
+
+    Map<UUID, MediaItemResponse> items(Collection<UUID> mediaIds);
+
+    void deleteAll(Collection<UUID> mediaIds);
 }

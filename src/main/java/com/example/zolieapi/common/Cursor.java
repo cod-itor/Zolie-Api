@@ -13,6 +13,12 @@ public record Cursor(Instant time, UUID id) {
     private static final Cursor START = new Cursor(
             Instant.parse("9999-01-01T00:00:00Z"), UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"));
 
+    private static final Cursor OLDEST = new Cursor(Instant.EPOCH, new UUID(0L, 0L));
+
+    public static Cursor decodeAscending(String encoded) {
+        return encoded == null || encoded.isBlank() ? OLDEST : decode(encoded);
+    }
+
     public static Cursor ofId(UUID id) {
         return new Cursor(Instant.EPOCH, id);
     }

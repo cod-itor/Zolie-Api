@@ -1,6 +1,7 @@
 package com.example.zolieapi.repository;
 
 import com.example.zolieapi.model.User;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -57,6 +58,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             where f.followed_id = :userId and f.status = 'pending' and
             """ + VisibilitySql.AUTHOR_ACTIVE + PAGE, nativeQuery = true)
     List<User> findFollowRequesters(UUID userId, UUID after, int limit);
+
+    @Query(value = """
+            select a.* from post_likes l join users a on a.id = l.user_id
+            where l.post_id = :postId and
+            """ + VisibilitySql.AUTHOR_ACTIVE + " and " + VisibilitySql.NOT_BLOCKED + PAGE, nativeQuery = true)
+    List<User> findPostLikers(UUID postId, UUID viewer, UUID after, int limit);
+
+    List<User> findByUsernameIn(Collection<String> usernames);
 
     @Query(value = """
             select a.* from blocks b join users a on a.id = b.blocked_id
