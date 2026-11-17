@@ -13,6 +13,10 @@ public record Cursor(Instant time, UUID id) {
     private static final Cursor START = new Cursor(
             Instant.parse("9999-01-01T00:00:00Z"), UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"));
 
+    public static Cursor ofId(UUID id) {
+        return new Cursor(Instant.EPOCH, id);
+    }
+
     public static Cursor decode(String encoded) {
         if (encoded == null || encoded.isBlank()) {
             return START;
