@@ -2,10 +2,6 @@ package com.example.zolieapi.security;
 
 import com.example.zolieapi.exception.ApiException;
 import com.example.zolieapi.exception.ErrorResponse;
-import com.example.zolieapi.model.User;
-import com.example.zolieapi.model.enums.AccountStatus;
-import com.example.zolieapi.model.enums.UserRole;
-import com.example.zolieapi.repository.UserRepository;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,8 +25,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String BEARER = "Bearer ";
 
-    private final TokenVerifier tokenVerifier;
-    private final UserRepository userRepository;
+    private final TokenAuthenticator tokenAuthenticator;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -41,7 +36,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            AuthUser authUser = authenticate(header.substring(BEARER.length()).trim());
+            AuthUser authUser = tokenAuthenticator.authenticate(header.substring(BEARER.length()).trim());
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(authUser, null, authorities(authUser)));
         } catch (ApiException e) {
@@ -50,17 +45,6 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
         chain.doFilter(request, response);
-    }
-
-    public AuthUser authenticate(String token) {
-        VerifiedToken verified = tokenVerifier.verify(token);
-        User user = userRepository.findByFirebaseUid(verified.uid()).orElse(null);
-        if (user == null) {
-            return new AuthUser(verified.uid(), verified.email(), verified.admin(), null, false);
-        }
-        boolean admin = verified.admin() || user.getRole() == UserRole.ADMIN;
-        boolean suspended = user.getStatus() == AccountStatus.SUSPENDED;
-        return new AuthUser(verified.uid(), verified.email(), admin, user.getId(), suspended);
     }
 
     private List<GrantedAuthority> authorities(AuthUser authUser) {
