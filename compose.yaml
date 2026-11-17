@@ -1,0 +1,23 @@
+# Local development database: PostgreSQL 16 with PostGIS and pg_trgm.
+# Credentials come from the git-ignored .env file (DB_USERNAME / DB_PASSWORD).
+services:
+  db:
+    image: postgis/postgis:16-3.5
+    platform: linux/amd64
+    container_name: zolie-db
+    environment:
+      POSTGRES_DB: zolie
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "5433:5432"
+    volumes:
+      - zolie-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d zolie"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  zolie-db-data:
