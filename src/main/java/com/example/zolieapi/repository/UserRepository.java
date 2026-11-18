@@ -65,6 +65,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """ + VisibilitySql.AUTHOR_ACTIVE + " and " + VisibilitySql.NOT_BLOCKED + PAGE, nativeQuery = true)
     List<User> findPostLikers(UUID postId, UUID viewer, UUID after, int limit);
 
+    @Query(value = """
+            select a.* from story_views v join users a on a.id = v.viewer_id
+            where v.story_id = :storyId and
+            """ + VisibilitySql.AUTHOR_ACTIVE + PAGE, nativeQuery = true)
+    List<User> findStoryViewers(UUID storyId, UUID after, int limit);
+
     List<User> findByUsernameIn(Collection<String> usernames);
 
     @Query(value = """

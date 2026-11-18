@@ -26,4 +26,9 @@ public class VisibilitySql {
 
     public static final String CAN_SEE_REEL = CAN_SEE_AUTHOR
             + " and (r.visibility = 'public' or a.id = :viewer or " + FOLLOWS_AUTHOR + ") ";
+
+    public static final String CAN_SEE_STORY = " s.expires_at > now() and " + CAN_SEE_AUTHOR + """
+             and (s.audience = 'everyone' or a.id = :viewer or exists (select 1 from close_friends cf
+                 where cf.owner_id = a.id and cf.friend_id = :viewer)) \
+            """;
 }
