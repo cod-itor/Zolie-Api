@@ -2,6 +2,7 @@ package com.example.zolieapi.repository;
 
 import com.example.zolieapi.model.Conversation;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,6 +19,8 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
     Optional<Conversation> findRegular(UUID userA, UUID userB);
 
     Optional<Conversation> findByMatchId(UUID matchId);
+
+    List<Conversation> findByMatchIdIn(Collection<UUID> matchIds);
 
     @Query(value = """
             select c.* from conversations c
