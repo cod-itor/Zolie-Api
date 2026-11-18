@@ -1,5 +1,10 @@
-# Local development database: PostgreSQL 16 with PostGIS and pg_trgm.
-# Credentials come from the git-ignored .env file (DB_USERNAME / DB_PASSWORD).
+# Zolie local stack.
+#
+#   docker compose up -d                          database only (run the API from your IDE or ./gradlew bootRun)
+#   docker compose --profile app up -d --build    database + API in Docker (http://localhost:8080/swagger-ui.html)
+#   docker compose --profile app down             stop everything (add -v to also delete the database data)
+#
+# Credentials come from the git-ignored .env file. Copy .env.example to .env first.
 services:
   db:
     image: postgis/postgis:16-3.5
@@ -18,6 +23,27 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  api:
+    build: .
+    profiles: ["app"]
+    container_name: zolie-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/zolie
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DEV_AUTH_ENABLED: ${DEV_AUTH_ENABLED:-false}
+      FIREBASE_CREDENTIALS_PATH: ${FIREBASE_CREDENTIALS_PATH:-}
+      R2_ENDPOINT: ${R2_ENDPOINT:-}
+      R2_BUCKET: ${R2_BUCKET:-}
+      R2_ACCESS_KEY: ${R2_ACCESS_KEY:-}
+      R2_SECRET_KEY: ${R2_SECRET_KEY:-}
+      R2_PUBLIC_BASE_URL: ${R2_PUBLIC_BASE_URL:-}
+    ports:
+      - "8080:8080"
 
 volumes:
   zolie-db-data:

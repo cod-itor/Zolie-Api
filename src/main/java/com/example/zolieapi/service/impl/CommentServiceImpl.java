@@ -95,8 +95,7 @@ public class CommentServiceImpl implements CommentService {
     @Transactional
     public void delete(UUID userId, UUID commentId) {
         Comment comment = requireComment(commentId);
-        UUID contentAuthorId = requireContentAuthor(userId, comment);
-        if (!comment.getAuthorId().equals(userId) && !contentAuthorId.equals(userId)) {
+        if (!comment.getAuthorId().equals(userId) && !requireContentAuthor(userId, comment).equals(userId)) {
             throw ApiException.forbidden();
         }
         int removed = commentRepository.softDeleteWithReplies(commentId);
@@ -135,7 +134,8 @@ public class CommentServiceImpl implements CommentService {
                 notificationService.send(parentAuthorId, userId, NotificationType.COMMENT, target, targetId);
             }
         }
-        mentionService.mention(userId, comment.getText(), null, NotificationTarget.COMMENT, comment.getId());
+        mentionService.mention(userId, contentAuthorId, comment.getText(), null, NotificationTarget.COMMENT,
+                comment.getId());
     }
 
     private UUID requireContentAuthor(UUID viewerId, Comment comment) {

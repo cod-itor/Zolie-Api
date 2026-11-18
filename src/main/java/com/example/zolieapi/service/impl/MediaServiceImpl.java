@@ -53,6 +53,9 @@ public class MediaServiceImpl implements MediaService {
             MediaPurpose.STORY, Set.of(MediaKind.IMAGE, MediaKind.VIDEO),
             MediaPurpose.POST, Set.of(MediaKind.IMAGE, MediaKind.VIDEO, MediaKind.AUDIO));
 
+    private static final Set<MediaPurpose> SINGLE_USE_PURPOSES =
+            Set.of(MediaPurpose.POST, MediaPurpose.REEL, MediaPurpose.STORY);
+
     private final MediaAssetRepository mediaAssetRepository;
     private final StorageService storageService;
     private final RateLimiter rateLimiter;
@@ -121,6 +124,9 @@ public class MediaServiceImpl implements MediaService {
                 || (purpose == MediaPurpose.REEL && asset.getStatus() == MediaStatus.PROCESSING);
         if (!uploaded) {
             throw ApiException.rule("Media " + mediaId + " is not uploaded yet. Call POST /media/{id}/complete first.");
+        }
+        if (SINGLE_USE_PURPOSES.contains(purpose) && mediaAssetRepository.isAttached(mediaId)) {
+            throw ApiException.rule("Media " + mediaId + " is already used. Upload the file again.");
         }
         return asset;
     }

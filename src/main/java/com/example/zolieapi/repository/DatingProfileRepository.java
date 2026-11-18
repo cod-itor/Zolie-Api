@@ -10,6 +10,25 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface DatingProfileRepository extends JpaRepository<DatingProfile, UUID> {
 
+    String COMPATIBLE = " c.status = 'active' and " + VisibilitySql.AUTHOR_ACTIVE + " and " + VisibilitySql.NOT_BLOCKED + """
+              and age_years(a.date_of_birth) >= 18
+              and age_years(a.date_of_birth) between me.pref_min_age and me.pref_max_age
+              and age_years(mu.date_of_birth) between c.pref_min_age and c.pref_max_age
+              and c.gender = any(me.pref_genders)
+              and me.gender = any(c.pref_genders)
+              and ST_DWithin(me.location, c.location, least(me.max_distance_km, c.max_distance_km) * 1000)
+            """;
+
+    @Query(value = """
+            select exists (select 1
+                from dating_profiles me
+                join users mu on mu.id = me.user_id
+                join dating_profiles c on c.user_id = :userId
+                join users a on a.id = c.user_id
+                where me.user_id = :viewer and
+            """ + COMPATIBLE + ")", nativeQuery = true)
+    boolean isCompatible(UUID userId, UUID viewer);
+
     @Modifying
     @Query(value = """
             update dating_profiles
@@ -28,16 +47,8 @@ public interface DatingProfileRepository extends JpaRepository<DatingProfile, UU
             join users mu on mu.id = me.user_id
             join dating_profiles c on c.user_id <> me.user_id
             join users a on a.id = c.user_id
-            where me.user_id = :viewer
-              and c.status = 'active'
-              and
-            """ + VisibilitySql.AUTHOR_ACTIVE + " and " + VisibilitySql.NOT_BLOCKED + """
-              and age_years(a.date_of_birth) >= 18
-              and age_years(a.date_of_birth) between me.pref_min_age and me.pref_max_age
-              and age_years(mu.date_of_birth) between c.pref_min_age and c.pref_max_age
-              and c.gender = any(me.pref_genders)
-              and me.gender = any(c.pref_genders)
-              and ST_DWithin(me.location, c.location, least(me.max_distance_km, c.max_distance_km) * 1000)
+            where me.user_id = :viewer and
+            """ + COMPATIBLE + """
               and not exists (select 1 from dating_likes l
                   where l.from_user_id = :viewer and l.to_user_id = c.user_id)
               and not exists (select 1 from dating_passes p

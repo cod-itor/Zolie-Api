@@ -6,10 +6,13 @@ import com.example.zolieapi.exception.ErrorCode;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
 import com.google.firebase.auth.FirebaseToken;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TokenVerifier {
@@ -20,6 +23,13 @@ public class TokenVerifier {
 
     private final ZolieProperties properties;
     private final ObjectProvider<FirebaseAuth> firebaseAuth;
+
+    @PostConstruct
+    void warnAboutDevTokens() {
+        if (properties.auth().devTokensEnabled()) {
+            log.warn("Development tokens are ENABLED (dev:<name>). Set DEV_AUTH_ENABLED=false in production.");
+        }
+    }
 
     public VerifiedToken verify(String token) {
         if (properties.auth().devTokensEnabled() && token.startsWith(DEV_PREFIX)) {

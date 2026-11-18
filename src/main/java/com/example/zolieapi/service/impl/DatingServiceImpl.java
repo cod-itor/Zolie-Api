@@ -333,7 +333,10 @@ public class DatingServiceImpl implements DatingService {
             throw ApiException.rule("You cannot do this to yourself.");
         }
         requireActiveProfile(userId);
-        if (!profileRepository.isDatable(toUserId, userId)) {
+        boolean likedMe = likeRepository.existsById(new UserPairId(toUserId, userId));
+        boolean reachable = profileRepository.isDatable(toUserId, userId)
+                && (likedMe || profileRepository.isCompatible(toUserId, userId));
+        if (!reachable) {
             throw ApiException.notFound();
         }
         profileRepository.lockPair(Pairs.first(userId, toUserId) + ":" + Pairs.second(userId, toUserId));

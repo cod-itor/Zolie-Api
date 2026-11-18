@@ -80,7 +80,7 @@ public class RealtimeEventListener {
         Notification notification = event.notification();
         UUID recipientId = notification.getRecipientId();
         NotificationResponse response = notificationMapper.toResponse(notification);
-        long unreadCount = notificationRepository.countByRecipientIdAndReadAtIsNull(recipientId);
+        long unreadCount = notificationRepository.countUnread(recipientId);
         messagingTemplate.convertAndSendToUser(recipientId.toString(), NOTIFICATIONS_QUEUE,
                 new NotificationPushResponse(response, unreadCount));
 

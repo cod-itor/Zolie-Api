@@ -71,6 +71,78 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             """ + VisibilitySql.AUTHOR_ACTIVE + PAGE, nativeQuery = true)
     List<User> findStoryViewers(UUID storyId, UUID after, int limit);
 
+    @Query(value = """
+            select a.* from users a
+            where (a.username ilike :pattern escape '\\' or a.display_name ilike :pattern escape '\\') and
+            """ + VisibilitySql.AUTHOR_ACTIVE + " and " + VisibilitySql.NOT_BLOCKED + PAGE, nativeQuery = true)
+    List<User> search(String pattern, UUID viewer, UUID after, int limit);
+
+    @Modifying
+    @Query(value = """
+            update users set status = 'active', suspended_until = null
+            where status = 'suspended' and suspended_until is not null and suspended_until <= now()
+            """, nativeQuery = true)
+    int liftEndedSuspensions();
+
+    @Modifying
+    @Query(value = """
+            update users set follower_count = follower_count - 1
+            where id in (select followed_id from follows where follower_id = :userId and status = 'accepted')
+            """, nativeQuery = true)
+    void releaseFollowerCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update users set following_count = following_count - 1
+            where id in (select follower_id from follows where followed_id = :userId and status = 'accepted')
+            """, nativeQuery = true)
+    void releaseFollowingCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update posts set like_count = like_count - 1
+            where id in (select post_id from post_likes where user_id = :userId)
+            """, nativeQuery = true)
+    void releasePostLikeCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update reels set like_count = like_count - 1
+            where id in (select reel_id from reel_likes where user_id = :userId)
+            """, nativeQuery = true)
+    void releaseReelLikeCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update poll_options set vote_count = vote_count - 1
+            where id in (select option_id from poll_votes where user_id = :userId)
+            """, nativeQuery = true)
+    void releasePollVoteCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update posts p set comment_count = p.comment_count - gone.total
+            from (select c.post_id, count(*) as total from comments c
+                  left join comments parent on parent.id = c.parent_id
+                  where c.post_id is not null and c.deleted_at is null
+                    and (c.author_id = :userId or parent.author_id = :userId)
+                  group by c.post_id) gone
+            where p.id = gone.post_id
+            """, nativeQuery = true)
+    void releasePostCommentCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update reels r set comment_count = r.comment_count - gone.total
+            from (select c.reel_id, count(*) as total from comments c
+                  left join comments parent on parent.id = c.parent_id
+                  where c.reel_id is not null and c.deleted_at is null
+                    and (c.author_id = :userId or parent.author_id = :userId)
+                  group by c.reel_id) gone
+            where r.id = gone.reel_id
+            """, nativeQuery = true)
+    void releaseReelCommentCounts(UUID userId);
+
     List<User> findByUsernameIn(Collection<String> usernames);
 
     @Query(value = """

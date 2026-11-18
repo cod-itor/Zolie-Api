@@ -7,7 +7,6 @@ import com.example.zolieapi.dto.response.FollowResponse;
 import com.example.zolieapi.dto.response.UserSummaryResponse;
 import com.example.zolieapi.exception.ApiException;
 import com.example.zolieapi.mapper.UserMapper;
-import com.example.zolieapi.model.Follow;
 import com.example.zolieapi.model.User;
 import com.example.zolieapi.model.enums.AccountType;
 import com.example.zolieapi.model.enums.FollowStatus;
@@ -21,9 +20,7 @@ import com.example.zolieapi.service.FollowService;
 import com.example.zolieapi.service.NotificationService;
 import com.example.zolieapi.service.VisibilityService;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -119,9 +116,9 @@ public class FollowServiceImpl implements FollowService {
     @Override
     @Transactional
     public void acceptRequest(UUID userId, UUID requesterId) {
-        Follow request = requirePending(requesterId, userId);
-        request.setStatus(FollowStatus.ACCEPTED);
-        request.setAcceptedAt(Instant.now());
+        if (followRepository.acceptPending(requesterId, userId) == 0) {
+            throw ApiException.notFound();
+        }
         addCounts(requesterId, userId, 1);
         notificationService.send(requesterId, userId, NotificationType.FOLLOW_ACCEPTED, NotificationTarget.USER, userId);
     }
@@ -129,7 +126,9 @@ public class FollowServiceImpl implements FollowService {
     @Override
     @Transactional
     public void declineRequest(UUID userId, UUID requesterId) {
-        followRepository.delete(requirePending(requesterId, userId));
+        if (followRepository.deleteWithStatus(requesterId, userId, Enums.value(FollowStatus.PENDING)) == 0) {
+            throw ApiException.notFound();
+        }
     }
 
     @Override
@@ -143,20 +142,10 @@ public class FollowServiceImpl implements FollowService {
     }
 
     private void remove(UUID followerId, UUID followedId) {
-        Optional<Follow> follow = followRepository.findById(new FollowId(followerId, followedId));
-        if (follow.isEmpty()) {
-            return;
-        }
-        if (follow.get().getStatus() == FollowStatus.ACCEPTED) {
+        if (followRepository.deleteWithStatus(followerId, followedId, Enums.value(FollowStatus.ACCEPTED)) == 1) {
             addCounts(followerId, followedId, -1);
         }
-        followRepository.delete(follow.get());
-    }
-
-    private Follow requirePending(UUID followerId, UUID followedId) {
-        return followRepository.findById(new FollowId(followerId, followedId))
-                .filter(follow -> follow.getStatus() == FollowStatus.PENDING)
-                .orElseThrow(ApiException::notFound);
+        followRepository.deleteWithStatus(followerId, followedId, Enums.value(FollowStatus.PENDING));
     }
 
     private void addCounts(UUID followerId, UUID followedId, int delta) {

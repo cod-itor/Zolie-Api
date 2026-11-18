@@ -65,7 +65,7 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional(readOnly = true)
     public UnreadCountResponse unreadCount(UUID userId) {
-        return new UnreadCountResponse(notificationRepository.countByRecipientIdAndReadAtIsNull(userId));
+        return new UnreadCountResponse(notificationRepository.countUnread(userId));
     }
 
     @Override

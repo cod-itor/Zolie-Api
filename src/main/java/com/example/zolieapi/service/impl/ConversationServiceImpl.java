@@ -103,6 +103,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Transactional(readOnly = true)
     public CursorPage<MessageResponse> listMessages(UUID userId, UUID conversationId, String before, Integer limit) {
         ConversationParticipant participant = requireParticipant(userId, conversationId);
+        requireReachable(userId, conversationId);
         int size = limit == null ? DEFAULT_MESSAGE_PAGE : CursorPage.limit(limit);
         Cursor from = Cursor.decode(before);
         Instant visibleAfter = participant.getClearedAt() == null ? Instant.EPOCH : participant.getClearedAt();
@@ -124,11 +125,7 @@ public class ConversationServiceImpl implements ConversationService {
         }
         rateLimiter.check("message", userId, 30, Duration.ofMinutes(1));
         ConversationParticipant participant = requireParticipant(userId, conversationId);
-        Conversation conversation = requireOpenConversation(conversationId);
-        UUID recipientId = Pairs.other(conversation.getUserAId(), conversation.getUserBId(), userId);
-        if (visibilityService.isBlockedBetween(userId, recipientId)) {
-            throw ApiException.notFound();
-        }
+        UUID recipientId = requireReachable(userId, conversationId);
 
         Message draft = buildMessage(userId, recipientId, conversationId, request);
         participant.setState(ParticipantState.INBOX);
@@ -139,6 +136,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Transactional
     public ReadReceiptResponse markRead(UUID userId, UUID conversationId, UUID lastReadMessageId) {
         ConversationParticipant participant = requireParticipant(userId, conversationId);
+        UUID otherUserId = requireReachable(userId, conversationId);
         Instant readUpTo = lastReadMessageId == null
                 ? Instant.now()
                 : messageRepository.findById(lastReadMessageId)
@@ -148,7 +146,6 @@ public class ConversationServiceImpl implements ConversationService {
         if (participant.getLastReadAt() == null || readUpTo.isAfter(participant.getLastReadAt())) {
             participant.setLastReadAt(readUpTo);
         }
-        UUID otherUserId = otherParticipant(userId, conversationId);
         eventPublisher.publishEvent(
                 new ConversationReadEvent(conversationId, userId, otherUserId, participant.getLastReadAt()));
         return new ReadReceiptResponse(conversationId, userId, participant.getLastReadAt());
@@ -172,8 +169,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Transactional(readOnly = true)
     public UUID otherParticipant(UUID userId, UUID conversationId) {
         requireParticipant(userId, conversationId);
-        Conversation conversation = conversationRepository.findById(conversationId).orElseThrow(ApiException::notFound);
-        return Pairs.other(conversation.getUserAId(), conversation.getUserBId(), userId);
+        return requireReachable(userId, conversationId);
     }
 
     @Override
@@ -211,7 +207,7 @@ public class ConversationServiceImpl implements ConversationService {
     @Override
     @Transactional
     public void addIntro(UUID conversationId, UUID senderId, String text) {
-        Message message = messageRepository.save(Message.builder()
+        Message message = messageRepository.saveAndFlush(Message.builder()
                 .conversationId(conversationId)
                 .senderId(senderId)
                 .type(MessageType.INTRO)
@@ -290,6 +286,7 @@ public class ConversationServiceImpl implements ConversationService {
     private Conversation findOrCreateRegular(UUID userId, UUID otherUserId) {
         UUID userA = Pairs.first(userId, otherUserId);
         UUID userB = Pairs.second(userId, otherUserId);
+        conversationRepository.lockPair("chat:" + userA + ":" + userB);
         Optional<Conversation> existing = conversationRepository.findRegular(userA, userB);
         if (existing.isPresent()) {
             return existing.get();
@@ -316,6 +313,15 @@ public class ConversationServiceImpl implements ConversationService {
     private ConversationParticipant requireParticipant(UUID userId, UUID conversationId) {
         return participantRepository.findById(new ParticipantId(conversationId, userId))
                 .orElseThrow(ApiException::notFound);
+    }
+
+    private UUID requireReachable(UUID userId, UUID conversationId) {
+        Conversation conversation = requireOpenConversation(conversationId);
+        UUID otherUserId = Pairs.other(conversation.getUserAId(), conversation.getUserBId(), userId);
+        if (visibilityService.isBlockedBetween(userId, otherUserId)) {
+            throw ApiException.notFound();
+        }
+        return otherUserId;
     }
 
     private Conversation requireOpenConversation(UUID conversationId) {

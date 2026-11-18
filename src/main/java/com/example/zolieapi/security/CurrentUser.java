@@ -32,7 +32,8 @@ public class CurrentUser {
 
     public UUID idOrGuest() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication != null && authentication.getPrincipal() instanceof AuthUser authUser && authUser.isSynced()) {
+        if (authentication != null && authentication.getPrincipal() instanceof AuthUser authUser
+                && authUser.isSynced() && !authUser.suspended()) {
             return authUser.userId();
         }
         return Viewer.GUEST;

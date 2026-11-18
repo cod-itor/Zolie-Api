@@ -7,6 +7,7 @@ import com.example.zolieapi.dto.response.MessageAckResponse;
 import com.example.zolieapi.dto.response.MessageResponse;
 import com.example.zolieapi.dto.response.TypingResponse;
 import com.example.zolieapi.exception.ApiException;
+import com.example.zolieapi.exception.ErrorCode;
 import com.example.zolieapi.exception.ErrorResponse;
 import com.example.zolieapi.service.ConversationService;
 import java.security.Principal;
@@ -54,6 +55,12 @@ public class ChatSocketController {
     @SendToUser("/queue/errors")
     public ErrorResponse handleError(ApiException e) {
         return ErrorResponse.of(e.getCode(), e.getMessage());
+    }
+
+    @MessageExceptionHandler(Exception.class)
+    @SendToUser("/queue/errors")
+    public ErrorResponse handleInvalidMessage(Exception e) {
+        return ErrorResponse.of(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.getDefaultMessage());
     }
 
     private UUID userId(Principal principal) {

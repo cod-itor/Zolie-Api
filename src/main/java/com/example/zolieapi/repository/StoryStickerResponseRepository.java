@@ -29,6 +29,6 @@ public interface StoryStickerResponseRepository extends JpaRepository<StoryStick
     Double averageSlider(UUID stickerId);
 
     @Modifying
-    @Query("update StoryStickerResponse r set r.remindMe = false where r.stickerId = :stickerId and r.remindMe = true")
-    void clearReminders(UUID stickerId);
+    @Query("delete from StoryStickerResponse r where r.stickerId = :stickerId and r.remindMe = true")
+    void deleteReminders(UUID stickerId);
 }

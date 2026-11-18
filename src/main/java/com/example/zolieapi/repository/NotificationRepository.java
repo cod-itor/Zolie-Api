@@ -20,7 +20,14 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
             """, nativeQuery = true)
     List<Notification> findPage(UUID userId, Instant time, UUID id, int limit);
 
-    long countByRecipientIdAndReadAtIsNull(UUID recipientId);
+    @Query(value = """
+            select count(*) from notifications n
+            where n.recipient_id = :recipientId and n.read_at is null
+              and not exists (select 1 from blocks b
+                  where (b.blocker_id = :recipientId and b.blocked_id = n.actor_id)
+                     or (b.blocker_id = n.actor_id and b.blocked_id = :recipientId))
+            """, nativeQuery = true)
+    long countUnread(UUID recipientId);
 
     @Modifying
     @Query("update Notification n set n.readAt = current_timestamp "

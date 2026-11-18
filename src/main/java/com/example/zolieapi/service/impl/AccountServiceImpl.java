@@ -68,7 +68,7 @@ public class AccountServiceImpl implements AccountService {
         String email = emailOf(authUser);
         validateNewAccount(request, username, email);
 
-        User user = userRepository.save(User.builder()
+        User user = userRepository.saveAndFlush(User.builder()
                 .firebaseUid(authUser.firebaseUid())
                 .email(email)
                 .username(username)
@@ -115,8 +115,16 @@ public class AccountServiceImpl implements AccountService {
     @Transactional
     public void deleteAccount(UUID userId) {
         User user = requireUser(userId);
-        deleteFirebaseAccount(user.getFirebaseUid());
+        userRepository.releaseFollowerCounts(userId);
+        userRepository.releaseFollowingCounts(userId);
+        userRepository.releasePostLikeCounts(userId);
+        userRepository.releaseReelLikeCounts(userId);
+        userRepository.releasePollVoteCounts(userId);
+        userRepository.releasePostCommentCounts(userId);
+        userRepository.releaseReelCommentCounts(userId);
         userRepository.delete(user);
+        userRepository.flush();
+        deleteFirebaseAccount(user.getFirebaseUid());
     }
 
     @Override

@@ -20,6 +20,10 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
 
     Optional<Conversation> findByMatchId(UUID matchId);
 
+    @Query(value = "select 1 from (select pg_advisory_xact_lock(hashtextextended(:pairKey, 0))) locked",
+            nativeQuery = true)
+    Integer lockPair(String pairKey);
+
     List<Conversation> findByMatchIdIn(Collection<UUID> matchIds);
 
     @Query(value = """

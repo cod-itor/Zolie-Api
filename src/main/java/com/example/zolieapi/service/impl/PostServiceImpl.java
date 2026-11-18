@@ -103,7 +103,7 @@ public class PostServiceImpl implements PostService {
             savePollOptions(post.getId(), request.poll().options());
         }
         userRepository.addPostCount(userId, 1);
-        mentionService.mention(userId, caption, request.taggedUserIds(), NotificationTarget.POST, post.getId());
+        mentionService.mention(userId, userId, caption, request.taggedUserIds(), NotificationTarget.POST, post.getId());
         idempotencyService.remember(userId, idempotencyKey, RESOURCE, post.getId());
         return postMapper.toResponse(userId, post);
     }
@@ -181,7 +181,9 @@ public class PostServiceImpl implements PostService {
     @Override
     @Transactional
     public LikeResponse unlike(UUID userId, UUID postId) {
-        requireVisible(userId, postId);
+        if (!postRepository.existsById(postId)) {
+            throw ApiException.notFound();
+        }
         if (postRepository.deleteLike(postId, userId) == 1) {
             postRepository.addLikeCount(postId, -1);
         }

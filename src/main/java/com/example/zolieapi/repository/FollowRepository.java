@@ -19,6 +19,20 @@ public interface FollowRepository extends JpaRepository<Follow, FollowId> {
 
     @Modifying
     @Query(value = """
+            update follows set status = 'accepted', accepted_at = now()
+            where follower_id = :followerId and followed_id = :followedId and status = 'pending'
+            """, nativeQuery = true)
+    int acceptPending(UUID followerId, UUID followedId);
+
+    @Modifying
+    @Query(value = """
+            delete from follows
+            where follower_id = :followerId and followed_id = :followedId and status = :status
+            """, nativeQuery = true)
+    int deleteWithStatus(UUID followerId, UUID followedId, String status);
+
+    @Modifying
+    @Query(value = """
             update users set following_count = following_count + 1
             where id in (select follower_id from follows where followed_id = :userId and status = 'pending')
             """, nativeQuery = true)

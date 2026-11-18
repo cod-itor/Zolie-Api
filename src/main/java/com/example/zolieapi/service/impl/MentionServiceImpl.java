@@ -36,15 +36,15 @@ public class MentionServiceImpl implements MentionService {
 
     @Override
     @Transactional
-    public void mention(UUID authorId, String text, Collection<UUID> taggedUserIds, NotificationTarget source,
-                        UUID sourceId) {
-        resolve(authorId, text, taggedUserIds).forEach(userId -> save(authorId, userId, source, sourceId));
+    public void mention(UUID authorId, UUID contentOwnerId, String text, Collection<UUID> taggedUserIds,
+                        NotificationTarget source, UUID sourceId) {
+        resolve(authorId, contentOwnerId, text, taggedUserIds).forEach(userId -> save(authorId, userId, source, sourceId));
     }
 
     @Override
     @Transactional
     public void replaceForPost(UUID authorId, UUID postId, String text, Collection<UUID> taggedUserIds) {
-        Set<UUID> wanted = resolve(authorId, text, taggedUserIds);
+        Set<UUID> wanted = resolve(authorId, authorId, text, taggedUserIds);
         List<Mention> existing = mentionRepository.findByPostId(postId);
         Set<UUID> current = existing.stream().map(Mention::getMentionedUserId).collect(Collectors.toSet());
 
@@ -56,7 +56,7 @@ public class MentionServiceImpl implements MentionService {
                 .forEach(userId -> save(authorId, userId, NotificationTarget.POST, postId));
     }
 
-    private Set<UUID> resolve(UUID authorId, String text, Collection<UUID> taggedUserIds) {
+    private Set<UUID> resolve(UUID authorId, UUID contentOwnerId, String text, Collection<UUID> taggedUserIds) {
         Set<String> usernames = new LinkedHashSet<>();
         if (text != null) {
             Matcher matcher = USERNAME_MENTION.matcher(text.toLowerCase());
@@ -66,14 +66,15 @@ public class MentionServiceImpl implements MentionService {
         }
         Set<User> users = new LinkedHashSet<>(userRepository.findByUsernameIn(usernames));
         if (taggedUserIds != null && !taggedUserIds.isEmpty()) {
-            users.addAll(userRepository.findAllById(taggedUserIds));
+            users.addAll(userRepository.findAllById(taggedUserIds.stream().distinct().limit(MAX_MENTIONS).toList()));
         }
         return users.stream()
                 .filter(user -> user.getStatus() == AccountStatus.ACTIVE)
                 .map(User::getId)
                 .filter(userId -> !userId.equals(authorId))
-                .filter(userId -> !visibilityService.isBlockedBetween(authorId, userId))
                 .limit(MAX_MENTIONS)
+                .filter(userId -> !visibilityService.isBlockedBetween(authorId, userId))
+                .filter(userId -> visibilityService.canSeeContentOf(userId, contentOwnerId))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 

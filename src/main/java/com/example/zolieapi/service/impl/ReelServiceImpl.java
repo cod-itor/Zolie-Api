@@ -45,6 +45,7 @@ public class ReelServiceImpl implements ReelService {
     private static final int MAX_CAPTION = 2200;
     private static final int MAX_REEL_MS = 90_000;
     private static final int MAX_VIEWS_PER_BATCH = 50;
+    private static final long MIN_WATCHED_MS = 1000;
 
     private final ReelRepository reelRepository;
     private final MediaService mediaService;
@@ -78,7 +79,7 @@ public class ReelServiceImpl implements ReelService {
                         ? Visibility.PUBLIC
                         : Enums.parse(Visibility.class, request.visibility(), "visibility"))
                 .build());
-        mentionService.mention(userId, caption, null, NotificationTarget.REEL, reel.getId());
+        mentionService.mention(userId, userId, caption, null, NotificationTarget.REEL, reel.getId());
         idempotencyService.remember(userId, idempotencyKey, RESOURCE, reel.getId());
         return reelMapper.toResponse(userId, reel);
     }
@@ -144,7 +145,9 @@ public class ReelServiceImpl implements ReelService {
     @Override
     @Transactional
     public LikeResponse unlike(UUID userId, UUID reelId) {
-        requireVisible(userId, reelId);
+        if (!reelRepository.existsById(reelId)) {
+            throw ApiException.notFound();
+        }
         if (reelRepository.deleteLike(reelId, userId) == 1) {
             reelRepository.addLikeCount(reelId, -1);
         }
@@ -178,7 +181,9 @@ public class ReelServiceImpl implements ReelService {
     @Override
     @Transactional
     public void recordViews(UUID viewerId, List<ReelViewRequest> views) {
+        rateLimiter.check("reel-views", viewerId, 30, Duration.ofMinutes(1));
         views.stream()
+                .filter(view -> view.watchedMs() >= MIN_WATCHED_MS)
                 .map(ReelViewRequest::reelId)
                 .distinct()
                 .limit(MAX_VIEWS_PER_BATCH)
