@@ -22,6 +22,14 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
     List<Message> findPage(UUID conversationId, Instant visibleAfter, Instant time, UUID id, int limit);
 
     @Query(value = """
+            select m.* from messages m
+            where m.conversation_id = :conversationId and m.deleted_at is null and m.created_at > :visibleAfter
+              and m.media_id is not null and (m.created_at, m.id) < (:time, :id)
+            order by m.created_at desc, m.id desc limit :limit
+            """, nativeQuery = true)
+    List<Message> findMediaPage(UUID conversationId, Instant visibleAfter, Instant time, UUID id, int limit);
+
+    @Query(value = """
             select distinct on (m.conversation_id) m.* from messages m
             where m.conversation_id in (:conversationIds) and m.deleted_at is null
             order by m.conversation_id, m.created_at desc, m.id desc

@@ -28,6 +28,7 @@ public class StompAuthInterceptor implements ChannelInterceptor {
             "/user/queue/messages",
             "/user/queue/acks",
             "/user/queue/receipts",
+            "/user/queue/reactions",
             "/user/queue/typing",
             "/user/queue/notifications",
             "/user/queue/errors");

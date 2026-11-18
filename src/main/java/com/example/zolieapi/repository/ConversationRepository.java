@@ -38,12 +38,19 @@ public interface ConversationRepository extends JpaRepository<Conversation, UUID
                      or (b.blocker_id = c.user_b_id and b.blocked_id = c.user_a_id))
               and ((:folder = 'inbox' and c.type = 'regular' and cp.state = 'inbox')
                 or (:folder = 'requests' and cp.state = 'request')
-                or (:folder = 'dating' and c.type = 'dating'))
+                or (:folder = 'dating' and c.type = 'dating')
+                or (:folder = 'unread' and cp.state = 'inbox' and exists (select 1 from messages um
+                    where um.conversation_id = c.id and um.deleted_at is null and um.sender_id <> :userId
+                      and um.created_at > coalesce(cp.last_read_at, 'epoch'::timestamptz)
+                      and um.created_at > coalesce(cp.cleared_at, 'epoch'::timestamptz))))
+              and (cast(:pattern as text) is null or exists (select 1 from users ou
+                  where ou.id = case when c.user_a_id = :userId then c.user_b_id else c.user_a_id end
+                    and (ou.username ilike :pattern escape '\\' or ou.display_name ilike :pattern escape '\\')))
               and (coalesce(c.last_message_at, c.created_at), c.id) < (:time, :id)
             order by coalesce(c.last_message_at, c.created_at) desc, c.id desc
             limit :limit
             """, nativeQuery = true)
-    List<Conversation> findForUser(UUID userId, String folder, Instant time, UUID id, int limit);
+    List<Conversation> findForUser(UUID userId, String folder, String pattern, Instant time, UUID id, int limit);
 
     @Modifying
     @Query("update Conversation c set c.lastMessageAt = :time where c.id = :id")

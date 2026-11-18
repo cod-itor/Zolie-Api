@@ -12,6 +12,8 @@ public enum ReportReason {
     UNDERAGE,
     SCAM,
     FAKE_PROFILE,
+    FALSE_INFO,
+    ILLEGAL_GOODS,
     OTHER;
 
     @Converter(autoApply = true)

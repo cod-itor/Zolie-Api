@@ -4,7 +4,12 @@ import com.example.zolieapi.dto.request.NotificationPreferencesRequest;
 import com.example.zolieapi.dto.request.UpdateSettingsRequest;
 import com.example.zolieapi.dto.response.NotificationPreferencesResponse;
 import com.example.zolieapi.dto.response.SettingsResponse;
+import com.example.zolieapi.common.Enums;
+import com.example.zolieapi.common.Texts;
+import com.example.zolieapi.dto.response.DeviceResponse;
 import com.example.zolieapi.exception.ApiException;
+import com.example.zolieapi.mapper.SettingsMapper;
+import com.example.zolieapi.model.enums.AudienceRule;
 import com.example.zolieapi.model.DeviceToken;
 import com.example.zolieapi.model.NotificationPreference;
 import com.example.zolieapi.model.User;
@@ -14,6 +19,8 @@ import com.example.zolieapi.repository.NotificationPreferenceRepository;
 import com.example.zolieapi.repository.UserRepository;
 import com.example.zolieapi.service.FollowService;
 import com.example.zolieapi.service.SettingsService;
+import java.time.Instant;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -31,11 +38,12 @@ public class SettingsServiceImpl implements SettingsService {
     private final NotificationPreferenceRepository preferenceRepository;
     private final DeviceTokenRepository deviceTokenRepository;
     private final FollowService followService;
+    private final SettingsMapper settingsMapper;
 
     @Override
     @Transactional(readOnly = true)
     public SettingsResponse getSettings(UUID userId) {
-        return toResponse(requireUser(userId));
+        return settingsMapper.toResponse(requireUser(userId));
     }
 
     @Override
@@ -51,10 +59,28 @@ public class SettingsServiceImpl implements SettingsService {
         if (request.showOnlineStatus() != null) {
             user.setShowOnlineStatus(request.showOnlineStatus());
         }
+        if (request.readReceipts() != null) {
+            user.setReadReceipts(request.readReceipts());
+        }
+        if (request.dataSaver() != null) {
+            user.setDataSaver(request.dataSaver());
+        }
+        if (request.hideDatingFromFollowing() != null) {
+            user.setHideDatingFromFollowing(request.hideDatingFromFollowing());
+        }
+        if (request.whoCanMessage() != null) {
+            user.setWhoCanMessage(Enums.parse(AudienceRule.class, request.whoCanMessage(), "whoCanMessage"));
+        }
+        if (request.whoCanMention() != null) {
+            user.setWhoCanMention(Enums.parse(AudienceRule.class, request.whoCanMention(), "whoCanMention"));
+        }
+        if (request.storyRepliesFrom() != null) {
+            user.setStoryRepliesFrom(Enums.parse(AudienceRule.class, request.storyRepliesFrom(), "storyRepliesFrom"));
+        }
         if (request.isPrivate() != null) {
             changePrivacy(user, request.isPrivate());
         }
-        return toResponse(user);
+        return settingsMapper.toResponse(user);
     }
 
     @Override
@@ -89,16 +115,35 @@ public class SettingsServiceImpl implements SettingsService {
         if (request.storyInteractions() != null) {
             preference.setStoryInteractions(request.storyInteractions());
         }
+        if (request.events() != null) {
+            preference.setEvents(request.events());
+        }
+        if (request.pausedUntil() != null) {
+            preference.setPausedUntil(request.pausedUntil().isAfter(Instant.now()) ? request.pausedUntil() : null);
+        }
         return toResponse(preference);
     }
 
     @Override
     @Transactional
-    public void registerDevice(UUID userId, String token) {
+    public void registerDevice(UUID userId, String token, String deviceName) {
         DeviceToken device = deviceTokenRepository.findByToken(token)
                 .orElseGet(() -> DeviceToken.builder().token(token).build());
         device.setUserId(userId);
+        device.setLastSeenAt(Instant.now());
+        if (deviceName != null) {
+            device.setDeviceName(Texts.clean(deviceName));
+        }
         deviceTokenRepository.save(device);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<DeviceResponse> listDevices(UUID userId) {
+        return deviceTokenRepository.findByUserId(userId).stream()
+                .map(device -> new DeviceResponse(device.getId(), device.getDeviceName(), device.getPlatform(),
+                        device.getLastSeenAt()))
+                .toList();
     }
 
     @Override
@@ -133,14 +178,9 @@ public class SettingsServiceImpl implements SettingsService {
                 .orElseGet(() -> preferenceRepository.save(NotificationPreference.builder().userId(userId).build()));
     }
 
-    private SettingsResponse toResponse(User user) {
-        return new SettingsResponse(user.getAccountType() == AccountType.PRIVATE, user.isShowOnlineStatus(),
-                user.getTheme(), user.getLocale());
-    }
-
     private NotificationPreferencesResponse toResponse(NotificationPreference preference) {
         return new NotificationPreferencesResponse(preference.isFollows(), preference.isLikes(),
                 preference.isComments(), preference.isMentions(), preference.isMatches(), preference.isMessages(),
-                preference.isStoryInteractions());
+                preference.isStoryInteractions(), preference.isEvents(), preference.getPausedUntil());
     }
 }

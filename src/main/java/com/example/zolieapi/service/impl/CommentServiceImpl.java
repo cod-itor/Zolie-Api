@@ -8,7 +8,10 @@ import com.example.zolieapi.dto.response.CommentResponse;
 import com.example.zolieapi.dto.response.UserSummaryResponse;
 import com.example.zolieapi.exception.ApiException;
 import com.example.zolieapi.mapper.UserMapper;
+import com.example.zolieapi.dto.response.LikeResponse;
 import com.example.zolieapi.model.Comment;
+import com.example.zolieapi.model.Post;
+import com.example.zolieapi.model.Reel;
 import com.example.zolieapi.model.enums.NotificationTarget;
 import com.example.zolieapi.model.enums.NotificationType;
 import com.example.zolieapi.repository.CommentRepository;
@@ -22,7 +25,9 @@ import com.example.zolieapi.service.NotificationService;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -46,49 +51,56 @@ public class CommentServiceImpl implements CommentService {
     @Override
     @Transactional(readOnly = true)
     public CursorPage<CommentResponse> listForPost(UUID viewerId, UUID postId, String cursor, Integer limit) {
-        requirePostAuthor(viewerId, postId);
+        UUID contentAuthorId = requirePostAuthor(viewerId, postId);
         int size = CursorPage.limit(limit);
         Cursor from = Cursor.decode(cursor);
-        return page(viewerId, commentRepository.findForPost(postId, viewerId, from.time(), from.id(), size + 1), size);
+        return page(viewerId, contentAuthorId,
+                commentRepository.findForPost(postId, viewerId, from.time(), from.id(), size + 1), size);
     }
 
     @Override
     @Transactional(readOnly = true)
     public CursorPage<CommentResponse> listForReel(UUID viewerId, UUID reelId, String cursor, Integer limit) {
-        requireReelAuthor(viewerId, reelId);
+        UUID contentAuthorId = requireReelAuthor(viewerId, reelId);
         int size = CursorPage.limit(limit);
         Cursor from = Cursor.decode(cursor);
-        return page(viewerId, commentRepository.findForReel(reelId, viewerId, from.time(), from.id(), size + 1), size);
+        return page(viewerId, contentAuthorId,
+                commentRepository.findForReel(reelId, viewerId, from.time(), from.id(), size + 1), size);
     }
 
     @Override
     @Transactional(readOnly = true)
     public CursorPage<CommentResponse> listReplies(UUID viewerId, UUID commentId, String cursor, Integer limit) {
         Comment parent = requireComment(commentId);
-        requireContentAuthor(viewerId, parent);
+        UUID contentAuthorId = requireContentAuthor(viewerId, parent);
         int size = CursorPage.limit(limit);
         Cursor from = Cursor.decodeAscending(cursor);
-        return page(viewerId, commentRepository.findReplies(commentId, viewerId, from.time(), from.id(), size + 1), size);
+        return page(viewerId, contentAuthorId,
+                commentRepository.findReplies(commentId, viewerId, from.time(), from.id(), size + 1), size);
     }
 
     @Override
     @Transactional
     public CommentResponse addToPost(UUID userId, UUID postId, CommentRequest request) {
-        UUID contentAuthorId = requirePostAuthor(userId, postId);
+        Post post = postRepository.findVisible(postId, userId).orElseThrow(ApiException::notFound);
+        requireCommentsEnabled(post.isCommentsEnabled());
+        UUID contentAuthorId = post.getAuthorId();
         Comment comment = save(userId, Comment.builder().postId(postId), request);
         postRepository.addCommentCount(postId, 1);
         notifyAndMention(userId, contentAuthorId, comment, NotificationTarget.POST, postId);
-        return toResponses(userId, List.of(comment)).get(0);
+        return toResponses(userId, contentAuthorId, List.of(comment)).get(0);
     }
 
     @Override
     @Transactional
     public CommentResponse addToReel(UUID userId, UUID reelId, CommentRequest request) {
-        UUID contentAuthorId = requireReelAuthor(userId, reelId);
+        Reel reel = reelRepository.findVisible(reelId, userId).orElseThrow(ApiException::notFound);
+        requireCommentsEnabled(reel.isCommentsEnabled());
+        UUID contentAuthorId = reel.getAuthorId();
         Comment comment = save(userId, Comment.builder().reelId(reelId), request);
         reelRepository.addCommentCount(reelId, 1);
         notifyAndMention(userId, contentAuthorId, comment, NotificationTarget.REEL, reelId);
-        return toResponses(userId, List.of(comment)).get(0);
+        return toResponses(userId, contentAuthorId, List.of(comment)).get(0);
     }
 
     @Override
@@ -103,6 +115,36 @@ public class CommentServiceImpl implements CommentService {
             postRepository.addCommentCount(comment.getPostId(), -removed);
         } else {
             reelRepository.addCommentCount(comment.getReelId(), -removed);
+        }
+    }
+
+    @Override
+    @Transactional
+    public LikeResponse like(UUID userId, UUID commentId) {
+        rateLimiter.check("like", userId, 120, Duration.ofMinutes(1));
+        Comment comment = requireComment(commentId);
+        requireContentAuthor(userId, comment);
+        if (commentRepository.insertLike(commentId, userId) == 1) {
+            commentRepository.addLikeCount(commentId, 1);
+            notificationService.send(comment.getAuthorId(), userId, NotificationType.COMMENT_LIKE,
+                    NotificationTarget.COMMENT, commentId);
+        }
+        return new LikeResponse(true, null, commentRepository.findLikeCount(commentId));
+    }
+
+    @Override
+    @Transactional
+    public LikeResponse unlike(UUID userId, UUID commentId) {
+        requireComment(commentId);
+        if (commentRepository.deleteLike(commentId, userId) == 1) {
+            commentRepository.addLikeCount(commentId, -1);
+        }
+        return new LikeResponse(false, null, commentRepository.findLikeCount(commentId));
+    }
+
+    private void requireCommentsEnabled(boolean enabled) {
+        if (!enabled) {
+            throw ApiException.rule("Comments are turned off.");
         }
     }
 
@@ -134,8 +176,8 @@ public class CommentServiceImpl implements CommentService {
                 notificationService.send(parentAuthorId, userId, NotificationType.COMMENT, target, targetId);
             }
         }
-        mentionService.mention(userId, contentAuthorId, comment.getText(), null, NotificationTarget.COMMENT,
-                comment.getId());
+        commentRepository.flush();
+        mentionService.mention(userId, comment.getText(), null, NotificationTarget.COMMENT, comment.getId());
     }
 
     private UUID requireContentAuthor(UUID viewerId, Comment comment) {
@@ -158,22 +200,32 @@ public class CommentServiceImpl implements CommentService {
                 .orElseThrow(ApiException::notFound);
     }
 
-    private CursorPage<CommentResponse> page(UUID viewerId, List<Comment> comments, int size) {
+    private CursorPage<CommentResponse> page(UUID viewerId, UUID contentAuthorId, List<Comment> comments, int size) {
         return CursorPage.of(comments, size, comment -> new Cursor(comment.getCreatedAt(), comment.getId()),
-                page -> toResponses(viewerId, page));
+                page -> toResponses(viewerId, contentAuthorId, page));
     }
 
-    private List<CommentResponse> toResponses(UUID viewerId, List<Comment> comments) {
+    private List<CommentResponse> toResponses(UUID viewerId, UUID contentAuthorId, List<Comment> comments) {
         if (comments.isEmpty()) {
             return List.of();
         }
+        List<UUID> commentIds = comments.stream().map(Comment::getId).toList();
         Map<UUID, UserSummaryResponse> authors = userMapper.summariesById(comments.stream().map(Comment::getAuthorId).toList());
-        Map<UUID, Long> replyCounts = commentRepository.countReplies(comments.stream().map(Comment::getId).toList())
-                .stream().collect(Collectors.toMap(ReplyCountRow::getParentId, ReplyCountRow::getTotal));
+        Map<UUID, Long> replyCounts = commentRepository.countReplies(commentIds).stream()
+                .collect(Collectors.toMap(ReplyCountRow::getParentId, ReplyCountRow::getTotal));
+        Set<UUID> liked = new HashSet<>(commentRepository.findLikedIds(viewerId, commentIds));
         return comments.stream()
-                .map(comment -> new CommentResponse(comment.getId(), authors.get(comment.getAuthorId()),
-                        comment.getText(), comment.getParentId(), replyCounts.getOrDefault(comment.getId(), 0L),
-                        comment.getAuthorId().equals(viewerId), comment.getCreatedAt()))
+                .map(comment -> new CommentResponse(
+                        comment.getId(),
+                        authors.get(comment.getAuthorId()),
+                        comment.getText(),
+                        comment.getParentId(),
+                        replyCounts.getOrDefault(comment.getId(), 0L),
+                        comment.getLikeCount(),
+                        liked.contains(comment.getId()),
+                        comment.getAuthorId().equals(viewerId),
+                        comment.getAuthorId().equals(contentAuthorId),
+                        comment.getCreatedAt()))
                 .toList();
     }
 }

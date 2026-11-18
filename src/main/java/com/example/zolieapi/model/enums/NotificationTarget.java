@@ -12,7 +12,8 @@ public enum NotificationTarget {
     STORY_STICKER,
     MATCH,
     CONVERSATION,
-    REPORT;
+    REPORT,
+    EVENT;
 
     @Converter(autoApply = true)
     public static class JpaConverter extends LowercaseEnumConverter<NotificationTarget> {

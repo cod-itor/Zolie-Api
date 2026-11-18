@@ -9,6 +9,7 @@ import com.example.zolieapi.dto.response.PostResponse;
 import com.example.zolieapi.dto.response.SaveResponse;
 import com.example.zolieapi.dto.response.ShareResponse;
 import com.example.zolieapi.dto.response.UserSummaryResponse;
+import java.util.List;
 import java.util.UUID;
 
 public interface PostService {
@@ -27,7 +28,7 @@ public interface PostService {
 
     CursorPage<PostResponse> listSaved(UUID userId, String cursor, Integer limit);
 
-    LikeResponse like(UUID userId, UUID postId);
+    LikeResponse like(UUID userId, UUID postId, String reaction);
 
     LikeResponse unlike(UUID userId, UUID postId);
 
@@ -38,6 +39,12 @@ public interface PostService {
     SaveResponse unsave(UUID userId, UUID postId);
 
     ShareResponse share(UUID userId, UUID postId);
+
+    void hide(UUID userId, UUID postId);
+
+    void unhide(UUID userId, UUID postId);
+
+    List<PostResponse> listPinned(UUID viewerId, UUID authorId);
 
     PollResponse vote(UUID userId, UUID postId, UUID optionId);
 }

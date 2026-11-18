@@ -24,7 +24,9 @@ public interface ReelService {
 
     CursorPage<ReelResponse> listSaved(UUID userId, String cursor, Integer limit);
 
-    LikeResponse like(UUID userId, UUID reelId);
+    LikeResponse like(UUID userId, UUID reelId, String reaction);
+
+    CursorPage<ReelResponse> listBySound(UUID viewerId, UUID soundId, String cursor, Integer limit);
 
     LikeResponse unlike(UUID userId, UUID reelId);
 

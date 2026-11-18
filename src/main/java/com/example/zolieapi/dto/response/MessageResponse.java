@@ -1,6 +1,7 @@
 package com.example.zolieapi.dto.response;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record MessageResponse(
@@ -14,6 +15,7 @@ public record MessageResponse(
         UUID storyId,
         UUID sharedPostId,
         UUID sharedReelId,
+        List<MessageReactionResponse> reactions,
         Instant createdAt
 ) {
 }

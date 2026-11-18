@@ -65,4 +65,11 @@ public class Reel {
     private Instant updatedAt;
 
     private Instant deletedAt;
+
+    @Builder.Default
+    private boolean commentsEnabled = true;
+
+    private UUID placeId;
+
+    private UUID soundId;
 }

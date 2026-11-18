@@ -45,6 +45,11 @@ public class NotificationPreference {
     @Builder.Default
     private boolean storyInteractions = true;
 
+    @Builder.Default
+    private boolean events = true;
+
+    private Instant pausedUntil;
+
     @UpdateTimestamp
     private Instant updatedAt;
 }

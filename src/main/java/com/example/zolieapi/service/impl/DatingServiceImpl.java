@@ -9,6 +9,10 @@ import com.example.zolieapi.common.Texts;
 import com.example.zolieapi.dto.request.DatingLocationRequest;
 import com.example.zolieapi.dto.request.DatingPreferencesRequest;
 import com.example.zolieapi.dto.request.DatingProfileRequest;
+import com.example.zolieapi.dto.request.PromptAnswerRequest;
+import com.example.zolieapi.dto.response.CountResponse;
+import com.example.zolieapi.dto.response.DatingPromptResponse;
+import com.example.zolieapi.dto.response.PromptAnswerResponse;
 import com.example.zolieapi.dto.response.DatingCardResponse;
 import com.example.zolieapi.dto.response.DatingLikeResponse;
 import com.example.zolieapi.dto.response.DatingPreferencesResponse;
@@ -24,6 +28,7 @@ import com.example.zolieapi.model.Conversation;
 import com.example.zolieapi.model.DatingIntro;
 import com.example.zolieapi.model.DatingLike;
 import com.example.zolieapi.model.DatingProfile;
+import com.example.zolieapi.model.DatingPromptAnswer;
 import com.example.zolieapi.model.Match;
 import com.example.zolieapi.model.User;
 import com.example.zolieapi.model.enums.DatingLikeType;
@@ -41,6 +46,8 @@ import com.example.zolieapi.repository.ConversationRepository;
 import com.example.zolieapi.repository.DatingIntroRepository;
 import com.example.zolieapi.repository.DatingLikeRepository;
 import com.example.zolieapi.repository.DatingProfileRepository;
+import com.example.zolieapi.repository.DatingPromptAnswerRepository;
+import com.example.zolieapi.repository.DatingPromptRepository;
 import com.example.zolieapi.repository.DatingProfileRepository.CandidateRow;
 import com.example.zolieapi.repository.DatingProfileRepository.PhotoRow;
 import com.example.zolieapi.repository.InterestRepository;
@@ -53,6 +60,8 @@ import com.example.zolieapi.service.MediaService;
 import com.example.zolieapi.service.NotificationService;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -77,11 +86,18 @@ public class DatingServiceImpl implements DatingService {
     private static final int MAX_DISTANCE_KM = 200;
     private static final int MAX_PREF_AGE = 99;
     private static final int MAX_INTRO = 500;
+    private static final int MAX_PROMPT_ANSWERS = 3;
+    private static final int MAX_PROMPT_ANSWER = 300;
+    private static final int DAILY_PICKS = 5;
+    private static final int PICKS_DROP_HOUR = 8;
+    private static final ZoneId PICKS_ZONE = ZoneId.of("Asia/Phnom_Penh");
     private static final double LOCATION_PRECISION = 100.0;
 
     private final DatingProfileRepository profileRepository;
     private final DatingLikeRepository likeRepository;
     private final DatingIntroRepository introRepository;
+    private final DatingPromptRepository promptRepository;
+    private final DatingPromptAnswerRepository promptAnswerRepository;
     private final MatchRepository matchRepository;
     private final ConversationRepository conversationRepository;
     private final InterestRepository interestRepository;
@@ -166,6 +182,46 @@ public class DatingServiceImpl implements DatingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<DatingPromptResponse> listPrompts() {
+        return promptRepository.findByActiveTrueOrderBySortOrderAsc().stream()
+                .map(prompt -> new DatingPromptResponse(prompt.getId(), prompt.getTextEn(), prompt.getTextKm()))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public DatingProfileResponse replacePromptAnswers(UUID userId, List<PromptAnswerRequest> answers) {
+        User user = requireAdult(userId);
+        DatingProfile profile = requireProfile(userId);
+        if (answers.size() > MAX_PROMPT_ANSWERS) {
+            throw ApiException.rule("You can answer up to " + MAX_PROMPT_ANSWERS + " prompts.");
+        }
+        List<Integer> promptIds = answers.stream().map(PromptAnswerRequest::promptId).distinct().toList();
+        if (promptIds.size() != answers.size() || promptRepository.findAllById(promptIds).size() != promptIds.size()) {
+            throw ApiException.rule("Each answer needs a different prompt that exists.");
+        }
+        promptAnswerRepository.deleteForUser(userId);
+        for (int position = 0; position < answers.size(); position++) {
+            promptAnswerRepository.save(DatingPromptAnswer.builder()
+                    .userId(userId)
+                    .promptId(answers.get(position).promptId())
+                    .answer(Texts.required(answers.get(position).answer(), MAX_PROMPT_ANSWER, "answer"))
+                    .position(position)
+                    .build());
+        }
+        promptAnswerRepository.flush();
+        return datingMapper.toOwnProfile(profile, user);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CountResponse countReceivedThisWeek(UUID userId) {
+        requireActiveProfile(userId);
+        return new CountResponse(likeRepository.countReceivedSince(userId, Instant.now().minus(Duration.ofDays(7))));
+    }
+
+    @Override
     @Transactional
     public DatingProfileResponse changeStatus(UUID userId, String status) {
         User user = requireAdult(userId);
@@ -230,17 +286,23 @@ public class DatingServiceImpl implements DatingService {
     @Transactional(readOnly = true)
     public DiscoveryResponse discover(UUID userId, Integer limit) {
         requireActiveProfile(userId);
+        int picksLeft = picksLeft(userId);
+        Instant nextPicksAt = picksWindowStart().plus(Duration.ofDays(1));
         if (!profileRepository.hasLocation(userId)) {
-            return new DiscoveryResponse(List.of(), "location_required");
+            return new DiscoveryResponse(List.of(), "location_required", picksLeft, nextPicksAt);
         }
-        int size = limit == null ? DEFAULT_DISCOVERY : Math.max(1, Math.min(limit, MAX_DISCOVERY));
+        if (picksLeft == 0) {
+            return new DiscoveryResponse(List.of(), "daily_limit_reached", 0, nextPicksAt);
+        }
+        int requested = limit == null ? DEFAULT_DISCOVERY : Math.max(1, Math.min(limit, MAX_DISCOVERY));
+        int size = Math.min(requested, picksLeft);
         List<CandidateRow> candidates = profileRepository.findCandidates(userId, size);
         Map<UUID, Double> distances = new HashMap<>();
         candidates.forEach(candidate -> distances.put(candidate.getUserId(), candidate.getDistanceMeters()));
         List<UUID> order = candidates.stream().map(CandidateRow::getUserId).toList();
-        Map<UUID, DatingCardResponse> cards = datingMapper.toCards(order, distances);
+        Map<UUID, DatingCardResponse> cards = datingMapper.toCards(userId, order, distances);
         List<DatingCardResponse> items = order.stream().map(cards::get).filter(Objects::nonNull).toList();
-        return new DiscoveryResponse(items, items.isEmpty() ? "no_matches_in_range" : null);
+        return new DiscoveryResponse(items, items.isEmpty() ? "no_matches_in_range" : null, picksLeft, nextPicksAt);
     }
 
     @Override
@@ -268,7 +330,7 @@ public class DatingServiceImpl implements DatingService {
 
     @Override
     @Transactional
-    public DatingLikeResponse sendIntro(UUID userId, UUID toUserId, String message) {
+    public DatingLikeResponse sendIntro(UUID userId, UUID toUserId, String message, UUID promptAnswerId) {
         rateLimiter.check("dating-intro", userId, 10, Duration.ofHours(1));
         prepareAction(userId, toUserId);
         UserPairId pair = new UserPairId(userId, toUserId);
@@ -284,6 +346,7 @@ public class DatingServiceImpl implements DatingService {
         introRepository.saveAndFlush(DatingIntro.builder()
                 .id(pair)
                 .messageText(Texts.required(message, MAX_INTRO, "message"))
+                .promptAnswerId(requirePromptAnswerOf(toUserId, promptAnswerId))
                 .build());
         notificationService.send(toUserId, userId, NotificationType.DATING_INTRO, NotificationTarget.USER, userId);
         return matchIfMutual(userId, toUserId);
@@ -339,7 +402,33 @@ public class DatingServiceImpl implements DatingService {
         if (!reachable) {
             throw ApiException.notFound();
         }
+        profileRepository.lockPair("picks:" + userId);
         profileRepository.lockPair(Pairs.first(userId, toUserId) + ":" + Pairs.second(userId, toUserId));
+        boolean alreadyLiked = likeRepository.existsById(new UserPairId(userId, toUserId));
+        if (!likedMe && !alreadyLiked && picksLeft(userId) <= 0) {
+            throw new ApiException(ErrorCode.DAILY_PICKS_USED);
+        }
+    }
+
+    private int picksLeft(UUID userId) {
+        long used = profileRepository.countPicksUsed(userId, picksWindowStart());
+        return (int) Math.max(0, DAILY_PICKS - used);
+    }
+
+    private Instant picksWindowStart() {
+        ZonedDateTime now = ZonedDateTime.now(PICKS_ZONE);
+        ZonedDateTime todayDrop = now.toLocalDate().atTime(PICKS_DROP_HOUR, 0).atZone(PICKS_ZONE);
+        return (now.isBefore(todayDrop) ? todayDrop.minusDays(1) : todayDrop).toInstant();
+    }
+
+    private UUID requirePromptAnswerOf(UUID ownerId, UUID promptAnswerId) {
+        if (promptAnswerId == null) {
+            return null;
+        }
+        return promptAnswerRepository.findById(promptAnswerId)
+                .filter(answer -> answer.getUserId().equals(ownerId))
+                .map(DatingPromptAnswer::getId)
+                .orElseThrow(() -> ApiException.rule("The prompt answer does not belong to this person."));
     }
 
     private void requireNotActedOn(UUID userId, UUID toUserId) {
@@ -438,23 +527,33 @@ public class DatingServiceImpl implements DatingService {
 
     private List<ReceivedLikeResponse> toReceived(List<DatingLike> likes) {
         List<UUID> senders = likes.stream().map(like -> like.getId().getFromUserId()).toList();
-        Map<UUID, DatingCardResponse> cards = datingMapper.toCards(senders, Map.of());
-        Map<UUID, String> intros = introRepository.findAllById(likes.stream().map(DatingLike::getId).toList()).stream()
-                .collect(Collectors.toMap(intro -> intro.getId().getFromUserId(), DatingIntro::getMessageText));
+        UUID viewerId = likes.isEmpty() ? null : likes.get(0).getId().getToUserId();
+        Map<UUID, DatingCardResponse> cards = datingMapper.toCards(viewerId, senders, Map.of());
+        Map<UUID, DatingIntro> intros = introRepository.findAllById(likes.stream().map(DatingLike::getId).toList()).stream()
+                .collect(Collectors.toMap(intro -> intro.getId().getFromUserId(), Function.identity()));
         return likes.stream()
                 .filter(like -> cards.containsKey(like.getId().getFromUserId()))
                 .map(like -> new ReceivedLikeResponse(
                         cards.get(like.getId().getFromUserId()),
                         Enums.value(like.getType()),
-                        intros.get(like.getId().getFromUserId()),
+                        Optional.ofNullable(intros.get(like.getId().getFromUserId()))
+                                .map(DatingIntro::getMessageText).orElse(null),
+                        sparkedAnswer(intros.get(like.getId().getFromUserId())),
                         like.getCreatedAt()))
                 .toList();
+    }
+
+    private PromptAnswerResponse sparkedAnswer(DatingIntro intro) {
+        if (intro == null || intro.getPromptAnswerId() == null) {
+            return null;
+        }
+        return promptAnswerRepository.findById(intro.getPromptAnswerId()).map(datingMapper::toPromptAnswer).orElse(null);
     }
 
     private List<MatchResponse> toMatches(UUID userId, List<Match> matches) {
         Map<UUID, UUID> otherByMatch = matches.stream().collect(Collectors.toMap(Match::getId,
                 match -> Pairs.other(match.getUserAId(), match.getUserBId(), userId)));
-        Map<UUID, DatingCardResponse> cards = datingMapper.toCards(otherByMatch.values(), Map.of());
+        Map<UUID, DatingCardResponse> cards = datingMapper.toCards(userId, otherByMatch.values(), Map.of());
         Map<UUID, Conversation> conversations = conversationRepository.findByMatchIdIn(otherByMatch.keySet()).stream()
                 .collect(Collectors.toMap(Conversation::getMatchId, Function.identity()));
         return matches.stream()

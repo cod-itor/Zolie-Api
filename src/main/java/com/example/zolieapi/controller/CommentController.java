@@ -3,6 +3,7 @@ package com.example.zolieapi.controller;
 import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.dto.request.CommentRequest;
 import com.example.zolieapi.dto.response.CommentResponse;
+import com.example.zolieapi.dto.response.LikeResponse;
 import com.example.zolieapi.security.CurrentUser;
 import com.example.zolieapi.service.CommentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -64,6 +66,18 @@ public class CommentController {
                                                    @RequestParam(required = false) String cursor,
                                                    @RequestParam(required = false) Integer limit) {
         return commentService.listReplies(currentUser.idOrGuest(), id, cursor, limit);
+    }
+
+    @PutMapping("/comments/{id}/like")
+    @Operation(summary = "Like a comment")
+    public LikeResponse like(@PathVariable UUID id) {
+        return commentService.like(currentUser.id(), id);
+    }
+
+    @DeleteMapping("/comments/{id}/like")
+    @Operation(summary = "Remove my like from a comment")
+    public LikeResponse unlike(@PathVariable UUID id) {
+        return commentService.unlike(currentUser.id(), id);
     }
 
     @DeleteMapping("/comments/{id}")

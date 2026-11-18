@@ -21,6 +21,7 @@ public record DatingProfileResponse(
         boolean showOccupation,
         boolean showDistance,
         List<InterestResponse> interests,
-        List<MediaItemResponse> photos
+        List<MediaItemResponse> photos,
+        List<PromptAnswerResponse> promptAnswers
 ) {
 }

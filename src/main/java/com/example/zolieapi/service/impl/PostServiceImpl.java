@@ -3,6 +3,7 @@ package com.example.zolieapi.service.impl;
 import com.example.zolieapi.common.Cursor;
 import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.common.Enums;
+import com.example.zolieapi.common.Reactions;
 import com.example.zolieapi.common.Texts;
 import com.example.zolieapi.dto.request.CreatePostRequest;
 import com.example.zolieapi.dto.request.PollRequest;
@@ -29,11 +30,16 @@ import com.example.zolieapi.model.enums.PostType;
 import com.example.zolieapi.model.enums.Visibility;
 import com.example.zolieapi.model.id.PostMediaId;
 import com.example.zolieapi.repository.PollOptionRepository;
+import com.example.zolieapi.repository.PollOptionRepository.VoteRow;
 import com.example.zolieapi.repository.PostMediaRepository;
 import com.example.zolieapi.repository.PostRepository;
+import com.example.zolieapi.repository.PostRepository.ReactionRow;
 import com.example.zolieapi.repository.UserRepository;
 import com.example.zolieapi.security.RateLimiter;
+import com.example.zolieapi.service.HashtagService;
 import com.example.zolieapi.service.IdempotencyService;
+import com.example.zolieapi.service.PlaceService;
+import com.example.zolieapi.service.SoundService;
 import com.example.zolieapi.service.MediaService;
 import com.example.zolieapi.service.MentionService;
 import com.example.zolieapi.service.NotificationService;
@@ -60,6 +66,7 @@ public class PostServiceImpl implements PostService {
     private static final int MAX_POLL_OPTIONS = 4;
     private static final int MIN_CAROUSEL_ITEMS = 2;
     private static final int MAX_CAROUSEL_ITEMS = 10;
+    private static final int MAX_PINNED = 3;
 
     private final PostRepository postRepository;
     private final PostMediaRepository postMediaRepository;
@@ -67,6 +74,9 @@ public class PostServiceImpl implements PostService {
     private final UserRepository userRepository;
     private final MediaService mediaService;
     private final MentionService mentionService;
+    private final HashtagService hashtagService;
+    private final SoundService soundService;
+    private final PlaceService placeService;
     private final NotificationService notificationService;
     private final VisibilityService visibilityService;
     private final IdempotencyService idempotencyService;
@@ -97,13 +107,21 @@ public class PostServiceImpl implements PostService {
                 .text(caption)
                 .visibility(parseVisibility(request.visibility()))
                 .pollEndsAt(type == PostType.POLL ? request.poll().endsAt() : null)
+                .pollAllowMultiple(type == PostType.POLL && Boolean.TRUE.equals(request.poll().allowMultiple()))
+                .pollShowResultsFirst(type != PostType.POLL || !Boolean.FALSE.equals(request.poll().showResultsBeforeVoting()))
+                .placeId(requirePlace(request.placeId()))
+                .soundId(request.soundId() == null ? null : soundService.use(request.soundId()))
+                .textBackground(Texts.clean(request.textBackground()))
+                .textStyle(Texts.clean(request.textStyle()))
+                .commentsEnabled(!Boolean.FALSE.equals(request.commentsEnabled()))
                 .build());
         attachMedia(post.getId(), mediaIds);
         if (type == PostType.POLL) {
             savePollOptions(post.getId(), request.poll().options());
         }
         userRepository.addPostCount(userId, 1);
-        mentionService.mention(userId, userId, caption, request.taggedUserIds(), NotificationTarget.POST, post.getId());
+        hashtagService.tagPost(post.getId(), caption);
+        mentionService.mention(userId, caption, request.taggedUserIds(), NotificationTarget.POST, post.getId());
         idempotencyService.remember(userId, idempotencyKey, RESOURCE, post.getId());
         return postMapper.toResponse(userId, post);
     }
@@ -124,6 +142,22 @@ public class PostServiceImpl implements PostService {
                 throw ApiException.rule("This post needs text.");
             }
             post.setText(caption);
+            hashtagService.tagPost(postId, caption);
+        }
+        if (request.visibility() != null) {
+            post.setVisibility(parseVisibility(request.visibility()));
+        }
+        if (request.placeId() != null) {
+            post.setPlaceId(requirePlace(request.placeId()));
+        }
+        if (request.commentsEnabled() != null) {
+            post.setCommentsEnabled(request.commentsEnabled());
+        }
+        if (request.hideLikeCount() != null) {
+            post.setHideLikeCount(request.hideLikeCount());
+        }
+        if (request.pinned() != null) {
+            changePin(post, request.pinned());
         }
         if (request.caption() != null || request.taggedUserIds() != null) {
             mentionService.replaceForPost(userId, postId, post.getText(), request.taggedUserIds());
@@ -168,14 +202,19 @@ public class PostServiceImpl implements PostService {
 
     @Override
     @Transactional
-    public LikeResponse like(UUID userId, UUID postId) {
+    public LikeResponse like(UUID userId, UUID postId, String reaction) {
         rateLimiter.check("like", userId, 120, Duration.ofMinutes(1));
+        String emoji = Reactions.parse(reaction);
         Post post = requireVisible(userId, postId);
-        if (postRepository.insertLike(postId, userId) == 1) {
+        if (postRepository.insertLike(postId, userId, emoji) == 1) {
             postRepository.addLikeCount(postId, 1);
             notificationService.send(post.getAuthorId(), userId, NotificationType.POST_LIKE, NotificationTarget.POST, postId);
+        } else if (reaction != null && !reaction.isBlank()) {
+            postRepository.updateReaction(postId, userId, emoji);
         }
-        return new LikeResponse(true, postRepository.findLikeCount(postId));
+        String current = postRepository.findMyReactions(userId, Set.of(postId)).stream()
+                .map(ReactionRow::getReaction).findFirst().orElse(emoji);
+        return new LikeResponse(true, current, visibleLikeCount(userId, post));
     }
 
     @Override
@@ -187,13 +226,19 @@ public class PostServiceImpl implements PostService {
         if (postRepository.deleteLike(postId, userId) == 1) {
             postRepository.addLikeCount(postId, -1);
         }
-        return new LikeResponse(false, postRepository.findLikeCount(postId));
+        long likeCount = postRepository.findVisible(postId, userId)
+                .map(post -> visibleLikeCount(userId, post))
+                .orElse(0L);
+        return new LikeResponse(false, null, likeCount);
     }
 
     @Override
     @Transactional(readOnly = true)
     public CursorPage<UserSummaryResponse> listLikers(UUID viewerId, UUID postId, String cursor, Integer limit) {
-        requireVisible(viewerId, postId);
+        Post post = requireVisible(viewerId, postId);
+        if (post.isHideLikeCount() && !post.getAuthorId().equals(viewerId)) {
+            throw ApiException.forbidden();
+        }
         int size = CursorPage.limit(limit);
         return CursorPage.of(userRepository.findPostLikers(postId, viewerId, Cursor.decode(cursor).id(), size + 1),
                 size, user -> Cursor.ofId(user.getId()), userMapper::toSummaries);
@@ -225,6 +270,26 @@ public class PostServiceImpl implements PostService {
 
     @Override
     @Transactional
+    public void hide(UUID userId, UUID postId) {
+        requireVisible(userId, postId);
+        postRepository.hide(postId, userId);
+    }
+
+    @Override
+    @Transactional
+    public void unhide(UUID userId, UUID postId) {
+        postRepository.unhide(postId, userId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PostResponse> listPinned(UUID viewerId, UUID authorId) {
+        visibilityService.requireCanSeeContentOf(viewerId, authorId);
+        return postMapper.toResponses(viewerId, postRepository.findPinned(authorId, viewerId));
+    }
+
+    @Override
+    @Transactional
     public PollResponse vote(UUID userId, UUID postId, UUID optionId) {
         Post post = requireVisible(userId, postId);
         if (post.getType() != PostType.POLL) {
@@ -239,12 +304,15 @@ public class PostServiceImpl implements PostService {
         if (!belongsToPoll) {
             throw ApiException.rule("This option does not belong to the poll.");
         }
-        if (pollOptionRepository.insertVote(postId, userId, optionId) == 0) {
+        pollOptionRepository.lock("vote:" + postId + ":" + userId);
+        boolean alreadyVoted = !post.isPollAllowMultiple() && pollOptionRepository.hasVoted(postId, userId);
+        if (alreadyVoted || pollOptionRepository.insertVote(postId, userId, optionId) == 0) {
             throw new ApiException(ErrorCode.ALREADY_VOTED);
         }
         pollOptionRepository.addVote(optionId);
         List<PollOption> options = pollOptionRepository.findByPostIdInOrderByPostIdAscPositionAsc(Set.of(postId));
-        return postMapper.toPoll(post, options, optionId);
+        List<UUID> voted = pollOptionRepository.findVotes(userId, Set.of(postId)).stream().map(VoteRow::getOptionId).toList();
+        return postMapper.toPoll(post, options, voted, post.getAuthorId().equals(userId));
     }
 
     private void validateContent(PostType type, String caption, List<MediaAsset> media, PollRequest poll) {
@@ -308,6 +376,29 @@ public class PostServiceImpl implements PostService {
         if (poll.endsAt() != null && !poll.endsAt().isAfter(Instant.now())) {
             throw ApiException.rule("The poll end time must be in the future.");
         }
+    }
+
+    private long visibleLikeCount(UUID viewerId, Post post) {
+        if (post.isHideLikeCount() && !post.getAuthorId().equals(viewerId)) {
+            return 0;
+        }
+        return postRepository.findLikeCount(post.getId());
+    }
+
+    private void changePin(Post post, boolean pinned) {
+        if (!pinned) {
+            post.setPinnedAt(null);
+            return;
+        }
+        if (post.getPinnedAt() == null && postRepository.countPinned(post.getAuthorId()) >= MAX_PINNED) {
+            throw ApiException.rule("You can pin up to " + MAX_PINNED + " posts.");
+        }
+        post.setPinnedAt(Instant.now());
+    }
+
+    private UUID requirePlace(UUID placeId) {
+        placeService.requireExists(placeId);
+        return placeId;
     }
 
     private Visibility parseVisibility(String visibility) {

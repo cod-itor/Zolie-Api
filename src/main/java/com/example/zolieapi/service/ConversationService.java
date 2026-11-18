@@ -11,7 +11,7 @@ import java.util.UUID;
 
 public interface ConversationService {
 
-    CursorPage<ConversationResponse> list(UUID userId, String folder, String cursor, Integer limit);
+    CursorPage<ConversationResponse> list(UUID userId, String folder, String query, String cursor, Integer limit);
 
     ConversationResponse open(UUID userId, UUID otherUserId);
 
@@ -24,6 +24,14 @@ public interface ConversationService {
     void accept(UUID userId, UUID conversationId);
 
     void clear(UUID userId, UUID conversationId);
+
+    void setMuted(UUID userId, UUID conversationId, boolean muted);
+
+    CursorPage<MessageResponse> listMedia(UUID userId, UUID conversationId, String cursor, Integer limit);
+
+    MessageResponse react(UUID userId, UUID messageId, String emoji);
+
+    MessageResponse removeReaction(UUID userId, UUID messageId);
 
     UUID otherParticipant(UUID userId, UUID conversationId);
 

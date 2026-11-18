@@ -6,11 +6,16 @@ import com.example.zolieapi.dto.response.DatingCardResponse;
 import com.example.zolieapi.dto.response.DatingProfileResponse;
 import com.example.zolieapi.dto.response.InterestResponse;
 import com.example.zolieapi.dto.response.MediaItemResponse;
+import com.example.zolieapi.dto.response.PromptAnswerResponse;
 import com.example.zolieapi.model.DatingProfile;
+import com.example.zolieapi.model.DatingPrompt;
+import com.example.zolieapi.model.DatingPromptAnswer;
 import com.example.zolieapi.model.User;
 import com.example.zolieapi.repository.DatingProfileRepository;
 import com.example.zolieapi.repository.DatingProfileRepository.InterestRow;
 import com.example.zolieapi.repository.DatingProfileRepository.PhotoRow;
+import com.example.zolieapi.repository.DatingPromptAnswerRepository;
+import com.example.zolieapi.repository.DatingPromptRepository;
 import com.example.zolieapi.repository.UserRepository;
 import com.example.zolieapi.service.MediaService;
 import java.util.Collection;
@@ -30,6 +35,8 @@ public class DatingMapper {
     private static final int[] BANDS_KM = {1, 5, 10, 25, 50, 100, 200};
 
     private final DatingProfileRepository datingProfileRepository;
+    private final DatingPromptRepository promptRepository;
+    private final DatingPromptAnswerRepository promptAnswerRepository;
     private final UserRepository userRepository;
     private final MediaService mediaService;
 
@@ -52,11 +59,18 @@ public class DatingMapper {
                 profile.isShowEducation(),
                 profile.isShowOccupation(),
                 profile.isShowDistance(),
-                interestsByUser(userIds).getOrDefault(profile.getUserId(), List.of()),
-                photosByUser(userIds).getOrDefault(profile.getUserId(), List.of()));
+                group(datingProfileRepository.findInterests(userIds)).getOrDefault(profile.getUserId(), List.of()),
+                photosByUser(userIds).getOrDefault(profile.getUserId(), List.of()),
+                promptAnswersByUser(userIds).getOrDefault(profile.getUserId(), List.of()));
     }
 
-    public Map<UUID, DatingCardResponse> toCards(Collection<UUID> userIds, Map<UUID, Double> distancesMeters) {
+    public PromptAnswerResponse toPromptAnswer(DatingPromptAnswer answer) {
+        DatingPrompt prompt = promptRepository.findById(answer.getPromptId()).orElse(null);
+        return toPromptAnswer(answer, prompt);
+    }
+
+    public Map<UUID, DatingCardResponse> toCards(UUID viewerId, Collection<UUID> userIds,
+                                                 Map<UUID, Double> distancesMeters) {
         List<UUID> ids = userIds.stream().distinct().toList();
         if (ids.isEmpty()) {
             return Map.of();
@@ -65,8 +79,10 @@ public class DatingMapper {
                 .collect(Collectors.toMap(User::getId, Function.identity()));
         Map<UUID, DatingProfile> profiles = datingProfileRepository.findAllById(ids).stream()
                 .collect(Collectors.toMap(DatingProfile::getUserId, Function.identity()));
-        Map<UUID, List<InterestResponse>> interests = interestsByUser(ids);
+        Map<UUID, List<InterestResponse>> interests = group(datingProfileRepository.findInterests(ids));
+        Map<UUID, List<InterestResponse>> shared = group(datingProfileRepository.findSharedInterests(viewerId, ids));
         Map<UUID, List<MediaItemResponse>> photos = photosByUser(ids);
+        Map<UUID, List<PromptAnswerResponse>> answers = promptAnswersByUser(ids);
 
         Map<UUID, DatingCardResponse> cards = new LinkedHashMap<>();
         for (UUID userId : ids) {
@@ -87,7 +103,9 @@ public class DatingMapper {
                     profile.isShowCity() ? profile.getCity() : null,
                     profile.isShowDistance() ? distanceBand(distancesMeters.get(userId)) : null,
                     interests.getOrDefault(userId, List.of()),
-                    photos.getOrDefault(userId, List.of())));
+                    shared.getOrDefault(userId, List.of()),
+                    photos.getOrDefault(userId, List.of()),
+                    answers.getOrDefault(userId, List.of())));
         }
         return cards;
     }
@@ -104,8 +122,8 @@ public class DatingMapper {
         return "within " + BANDS_KM[BANDS_KM.length - 1] + " km";
     }
 
-    private Map<UUID, List<InterestResponse>> interestsByUser(Collection<UUID> userIds) {
-        return datingProfileRepository.findInterests(userIds).stream()
+    private Map<UUID, List<InterestResponse>> group(List<InterestRow> rows) {
+        return rows.stream()
                 .collect(Collectors.groupingBy(InterestRow::getUserId, Collectors.mapping(
                         row -> new InterestResponse(row.getId(), row.getNameEn(), row.getNameKm()),
                         Collectors.toList())));
@@ -118,5 +136,19 @@ public class DatingMapper {
                 .filter(row -> items.get(row.getMediaId()) != null)
                 .collect(Collectors.groupingBy(PhotoRow::getUserId, Collectors.mapping(
                         row -> items.get(row.getMediaId()), Collectors.toList())));
+    }
+
+    private Map<UUID, List<PromptAnswerResponse>> promptAnswersByUser(Collection<UUID> userIds) {
+        Map<Integer, DatingPrompt> prompts = promptRepository.findAll().stream()
+                .collect(Collectors.toMap(DatingPrompt::getId, Function.identity()));
+        return promptAnswerRepository.findByUserIdInOrderByUserIdAscPositionAsc(userIds).stream()
+                .collect(Collectors.groupingBy(DatingPromptAnswer::getUserId, Collectors.mapping(
+                        answer -> toPromptAnswer(answer, prompts.get(answer.getPromptId())), Collectors.toList())));
+    }
+
+    private PromptAnswerResponse toPromptAnswer(DatingPromptAnswer answer, DatingPrompt prompt) {
+        return new PromptAnswerResponse(answer.getId(), answer.getPromptId(),
+                prompt == null ? null : prompt.getTextEn(), prompt == null ? null : prompt.getTextKm(),
+                answer.getAnswer());
     }
 }

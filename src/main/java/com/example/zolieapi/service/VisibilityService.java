@@ -1,6 +1,7 @@
 package com.example.zolieapi.service;
 
 import com.example.zolieapi.model.User;
+import com.example.zolieapi.model.enums.AudienceRule;
 import java.util.UUID;
 
 public interface VisibilityService {
@@ -16,4 +17,6 @@ public interface VisibilityService {
     void requireCanSeeContentOf(UUID viewerId, UUID authorId);
 
     boolean isAcceptedFollower(UUID followerId, UUID followedId);
+
+    boolean allows(AudienceRule rule, UUID ownerId, UUID actorId);
 }

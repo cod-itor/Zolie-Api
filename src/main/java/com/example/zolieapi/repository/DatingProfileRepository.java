@@ -1,6 +1,7 @@
 package com.example.zolieapi.repository;
 
 import com.example.zolieapi.model.DatingProfile;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -17,6 +18,10 @@ public interface DatingProfileRepository extends JpaRepository<DatingProfile, UU
               and c.gender = any(me.pref_genders)
               and me.gender = any(c.pref_genders)
               and ST_DWithin(me.location, c.location, least(me.max_distance_km, c.max_distance_km) * 1000)
+              and not ((mu.hide_dating_from_following or a.hide_dating_from_following) and exists (
+                  select 1 from follows hf where hf.status = 'accepted'
+                    and ((hf.follower_id = mu.id and hf.followed_id = a.id)
+                      or (hf.follower_id = a.id and hf.followed_id = mu.id))))
             """;
 
     @Query(value = """
@@ -89,6 +94,31 @@ public interface DatingProfileRepository extends JpaRepository<DatingProfile, UU
             where di.user_id in (:userIds) order by di.user_id, i.id
             """, nativeQuery = true)
     List<InterestRow> findInterests(Collection<UUID> userIds);
+
+    @Query(value = """
+            with mine as (
+                select interest_id from dating_profile_interests where user_id = :viewer
+                union select interest_id from user_interests where user_id = :viewer),
+            theirs as (
+                select user_id, interest_id from dating_profile_interests where user_id in (:userIds)
+                union select user_id, interest_id from user_interests where user_id in (:userIds))
+            select t.user_id as userId, i.id::int as id, i.name_en as nameEn, i.name_km as nameKm
+            from theirs t join mine m on m.interest_id = t.interest_id join interests i on i.id = t.interest_id
+            order by t.user_id, i.id
+            """, nativeQuery = true)
+    List<InterestRow> findSharedInterests(UUID viewer, Collection<UUID> userIds);
+
+    @Query(value = """
+            select (select count(*) from dating_likes l
+                     where l.from_user_id = :viewer and l.created_at >= :since
+                       and not exists (select 1 from dating_likes r
+                           where r.from_user_id = l.to_user_id and r.to_user_id = :viewer and r.created_at < l.created_at))
+                 + (select count(*) from dating_passes p
+                     where p.from_user_id = :viewer and p.created_at >= :since
+                       and not exists (select 1 from dating_likes r
+                           where r.from_user_id = p.to_user_id and r.to_user_id = :viewer))
+            """, nativeQuery = true)
+    long countPicksUsed(UUID viewer, Instant since);
 
     interface CandidateRow {
 

@@ -42,6 +42,26 @@ public interface CommentRepository extends JpaRepository<Comment, UUID> {
             """, nativeQuery = true)
     int softDeleteWithReplies(UUID commentId);
 
+    @Modifying
+    @Query(value = "insert into comment_likes (comment_id, user_id) values (:commentId, :userId) on conflict do nothing",
+            nativeQuery = true)
+    int insertLike(UUID commentId, UUID userId);
+
+    @Modifying
+    @Query(value = "delete from comment_likes where comment_id = :commentId and user_id = :userId", nativeQuery = true)
+    int deleteLike(UUID commentId, UUID userId);
+
+    @Modifying
+    @Query("update Comment c set c.likeCount = c.likeCount + :delta where c.id = :id")
+    void addLikeCount(UUID id, int delta);
+
+    @Query("select c.likeCount from Comment c where c.id = :id")
+    int findLikeCount(UUID id);
+
+    @Query(value = "select comment_id from comment_likes where user_id = :userId and comment_id in (:commentIds)",
+            nativeQuery = true)
+    List<UUID> findLikedIds(UUID userId, Collection<UUID> commentIds);
+
     interface ReplyCountRow {
 
         UUID getParentId();

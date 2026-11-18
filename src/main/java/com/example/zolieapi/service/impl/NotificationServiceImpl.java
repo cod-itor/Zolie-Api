@@ -85,14 +85,18 @@ public class NotificationServiceImpl implements NotificationService {
         if (preference == null) {
             return true;
         }
+        if (preference.getPausedUntil() != null && preference.getPausedUntil().isAfter(Instant.now())) {
+            return false;
+        }
         return switch (type) {
             case FOLLOW, FOLLOW_REQUEST, FOLLOW_ACCEPTED -> preference.isFollows();
             case POST_LIKE, REEL_LIKE -> preference.isLikes();
-            case COMMENT -> preference.isComments();
+            case COMMENT, COMMENT_LIKE -> preference.isComments();
             case MENTION -> preference.isMentions();
             case MATCH, DATING_INTRO -> preference.isMatches();
             case MESSAGE -> preference.isMessages();
             case STORY_REPLY, STICKER_RESPONSE, COUNTDOWN_ENDED -> preference.isStoryInteractions();
+            case EVENT_REMINDER -> preference.isEvents();
             case REPORT_RESOLVED, MODERATION_NOTICE -> true;
         };
     }

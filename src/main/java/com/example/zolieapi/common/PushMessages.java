@@ -16,6 +16,8 @@ public class PushMessages {
             Map.entry(NotificationType.POST_LIKE, text("liked your post", "បានចូលចិត្តការបង្ហោះរបស់អ្នក")),
             Map.entry(NotificationType.REEL_LIKE, text("liked your Reel", "បានចូលចិត្តវីដេអូរបស់អ្នក")),
             Map.entry(NotificationType.COMMENT, text("commented", "បានផ្តល់មតិ")),
+            Map.entry(NotificationType.COMMENT_LIKE, text("liked your comment", "បានចូលចិត្តមតិរបស់អ្នក")),
+            Map.entry(NotificationType.EVENT_REMINDER, text("An event you saved is starting soon", "ព្រឹត្តិការណ៍ដែលអ្នករក្សាទុកជិតចាប់ផ្តើមហើយ")),
             Map.entry(NotificationType.MENTION, text("mentioned you", "បានលើកឈ្មោះអ្នក")),
             Map.entry(NotificationType.MATCH, text("You have a new match", "អ្នកមានការផ្គូផ្គងថ្មី")),
             Map.entry(NotificationType.DATING_INTRO, text("sent you an intro", "បានផ្ញើសារណែនាំខ្លួនមកអ្នក")),

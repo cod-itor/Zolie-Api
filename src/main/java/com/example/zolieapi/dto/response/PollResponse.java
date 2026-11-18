@@ -9,6 +9,8 @@ public record PollResponse(
         int totalVotes,
         Instant endsAt,
         boolean ended,
-        UUID votedOptionId
+        boolean allowMultiple,
+        boolean resultsHidden,
+        List<UUID> votedOptionIds
 ) {
 }

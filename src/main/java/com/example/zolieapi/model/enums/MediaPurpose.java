@@ -10,7 +10,9 @@ public enum MediaPurpose {
     REEL,
     REEL_THUMBNAIL,
     CHAT,
-    DATING;
+    DATING,
+    SOUND,
+    EVENT;
 
     @Converter(autoApply = true)
     public static class JpaConverter extends LowercaseEnumConverter<MediaPurpose> {

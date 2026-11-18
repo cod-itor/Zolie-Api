@@ -47,8 +47,8 @@ public interface StoryRepository extends JpaRepository<Story, UUID> {
     @Query("update Story s set s.viewCount = s.viewCount + 1 where s.id = :id")
     void addView(UUID id);
 
-    @Query(value = "select s.media_id from stories s where s.expires_at <= now() limit :limit", nativeQuery = true)
-    List<UUID> findExpiredMediaIds(int limit);
+    @Query(value = "select s.* from stories s where s.expires_at <= now() limit :limit", nativeQuery = true)
+    List<Story> findExpired(int limit);
 
     interface RingRow {
 

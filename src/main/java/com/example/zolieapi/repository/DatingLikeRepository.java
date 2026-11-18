@@ -31,6 +31,9 @@ public interface DatingLikeRepository extends JpaRepository<DatingLike, UserPair
     @Query(value = RECEIVED + " and l.type = 'intro' " + PAGE, nativeQuery = true)
     List<DatingLike> findReceivedIntros(UUID viewer, Instant time, UUID id, int limit);
 
+    @Query(value = "select count(*) from (" + RECEIVED + " and l.created_at >= :since) received", nativeQuery = true)
+    long countReceivedSince(UUID viewer, Instant since);
+
     @Modifying
     @Query(value = "insert into dating_passes (from_user_id, to_user_id) values (:fromUserId, :toUserId) on conflict do nothing",
             nativeQuery = true)

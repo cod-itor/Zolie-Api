@@ -2,6 +2,7 @@ package com.example.zolieapi.service.event;
 
 import com.example.zolieapi.common.Enums;
 import com.example.zolieapi.common.PushMessages;
+import com.example.zolieapi.dto.response.MessageReactionEventResponse;
 import com.example.zolieapi.dto.response.MessageResponse;
 import com.example.zolieapi.dto.response.NotificationPushResponse;
 import com.example.zolieapi.dto.response.NotificationResponse;
@@ -35,6 +36,7 @@ public class RealtimeEventListener {
 
     private static final String MESSAGES_QUEUE = "/queue/messages";
     private static final String RECEIPTS_QUEUE = "/queue/receipts";
+    private static final String REACTIONS_QUEUE = "/queue/reactions";
     private static final String NOTIFICATIONS_QUEUE = "/queue/notifications";
     private static final String NEW_MESSAGE = "new_message";
     private static final int MAX_PREVIEW = 80;
@@ -66,6 +68,14 @@ public class RealtimeEventListener {
         data.put("title", displayName(message.getSenderId()));
         data.put("body", preview(message, event.recipientId()));
         pushService.send(event.recipientId(), data);
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onMessageReaction(MessageReactionEvent event) {
+        MessageReactionEventResponse response = new MessageReactionEventResponse(event.conversationId(),
+                event.messageId(), event.userId(), event.emoji());
+        messagingTemplate.convertAndSendToUser(event.otherUserId().toString(), REACTIONS_QUEUE, response);
+        messagingTemplate.convertAndSendToUser(event.userId().toString(), REACTIONS_QUEUE, response);
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

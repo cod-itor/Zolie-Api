@@ -58,4 +58,24 @@ public class Post {
     private Instant updatedAt;
 
     private Instant deletedAt;
+
+    private UUID placeId;
+
+    private UUID soundId;
+
+    private String textBackground;
+
+    private String textStyle;
+
+    @Builder.Default
+    private boolean commentsEnabled = true;
+
+    private boolean hideLikeCount;
+
+    private Instant pinnedAt;
+
+    private boolean pollAllowMultiple;
+
+    @Builder.Default
+    private boolean pollShowResultsFirst = true;
 }

@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -39,11 +40,13 @@ public class ConversationController {
     @GetMapping
     @Operation(summary = "List my chats with the last message and unread count")
     public CursorPage<ConversationResponse> list(
-            @Parameter(schema = @Schema(allowableValues = {"inbox", "requests", "dating"}))
+            @Parameter(schema = @Schema(allowableValues = {"inbox", "unread", "requests", "dating"}))
             @RequestParam(defaultValue = "inbox") String folder,
+            @Parameter(description = "Search chats by the other person's name")
+            @RequestParam(required = false) String q,
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {
-        return conversationService.list(currentUser.id(), folder, cursor, limit);
+        return conversationService.list(currentUser.id(), folder, q, cursor, limit);
     }
 
     @PostMapping
@@ -62,7 +65,7 @@ public class ConversationController {
 
     @PostMapping("/{id}/messages")
     @ResponseStatus(HttpStatus.CREATED)
-    @Operation(summary = "Send a text, image, shared post or shared Reel")
+    @Operation(summary = "Send a text, image, voice note, shared post or shared Reel")
     public MessageResponse send(@PathVariable UUID id, @Valid @RequestBody SendMessageRequest request) {
         return conversationService.send(currentUser.id(), id, request);
     }
@@ -79,6 +82,28 @@ public class ConversationController {
     @Operation(summary = "Accept a message request")
     public void accept(@PathVariable UUID id) {
         conversationService.accept(currentUser.id(), id);
+    }
+
+    @PutMapping("/{id}/mute")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Mute a chat: no push for its messages")
+    public void mute(@PathVariable UUID id) {
+        conversationService.setMuted(currentUser.id(), id, true);
+    }
+
+    @DeleteMapping("/{id}/mute")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Unmute a chat")
+    public void unmute(@PathVariable UUID id) {
+        conversationService.setMuted(currentUser.id(), id, false);
+    }
+
+    @GetMapping("/{id}/media")
+    @Operation(summary = "List the photos and voice notes shared in a chat")
+    public CursorPage<MessageResponse> listMedia(@PathVariable UUID id,
+                                                 @RequestParam(required = false) String cursor,
+                                                 @RequestParam(required = false) Integer limit) {
+        return conversationService.listMedia(currentUser.id(), id, cursor, limit);
     }
 
     @DeleteMapping("/{id}")

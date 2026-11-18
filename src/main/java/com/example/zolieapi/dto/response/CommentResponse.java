@@ -9,7 +9,10 @@ public record CommentResponse(
         String text,
         UUID parentId,
         long replyCount,
+        int likeCount,
+        boolean likedByMe,
         boolean isMine,
+        boolean isAuthor,
         Instant createdAt
 ) {
 }

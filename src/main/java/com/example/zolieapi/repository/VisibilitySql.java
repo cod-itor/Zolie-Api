@@ -21,14 +21,19 @@ public class VisibilitySql {
     public static final String CAN_SEE_AUTHOR = AUTHOR_ACTIVE + " and " + NOT_BLOCKED
             + " and (a.id = :viewer or a.account_type = 'public' or " + FOLLOWS_AUTHOR + ") ";
 
-    public static final String CAN_SEE_POST = CAN_SEE_AUTHOR
-            + " and (p.visibility = 'public' or a.id = :viewer or " + FOLLOWS_AUTHOR + ") ";
+    public static final String IS_CLOSE_FRIEND = """
+             exists (select 1 from close_friends cf where cf.owner_id = a.id and cf.friend_id = :viewer) \
+            """;
 
-    public static final String CAN_SEE_REEL = CAN_SEE_AUTHOR
-            + " and (r.visibility = 'public' or a.id = :viewer or " + FOLLOWS_AUTHOR + ") ";
+    public static final String CAN_SEE_POST = CAN_SEE_AUTHOR + " and (p.visibility = 'public' or a.id = :viewer"
+            + " or (p.visibility = 'followers' and " + FOLLOWS_AUTHOR + ")"
+            + " or (p.visibility = 'close_friends' and " + IS_CLOSE_FRIEND + ")) ";
+
+    public static final String CAN_SEE_REEL = CAN_SEE_AUTHOR + " and (r.visibility = 'public' or a.id = :viewer"
+            + " or (r.visibility = 'followers' and " + FOLLOWS_AUTHOR + ")"
+            + " or (r.visibility = 'close_friends' and " + IS_CLOSE_FRIEND + ")) ";
 
     public static final String CAN_SEE_STORY = " s.expires_at > now() and " + CAN_SEE_AUTHOR + """
-             and (s.audience = 'everyone' or a.id = :viewer or exists (select 1 from close_friends cf
-                 where cf.owner_id = a.id and cf.friend_id = :viewer)) \
-            """;
+             and (s.audience = 'everyone' or a.id = :viewer or \
+            """ + IS_CLOSE_FRIEND + ") ";
 }

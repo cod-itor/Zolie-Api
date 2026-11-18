@@ -4,6 +4,7 @@ import com.example.zolieapi.common.Cursor;
 import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.common.Enums;
 import com.example.zolieapi.common.Pairs;
+import com.example.zolieapi.common.Reactions;
 import com.example.zolieapi.common.Texts;
 import com.example.zolieapi.dto.request.SendMessageRequest;
 import com.example.zolieapi.dto.response.ConversationResponse;
@@ -18,8 +19,10 @@ import com.example.zolieapi.model.Conversation;
 import com.example.zolieapi.model.ConversationParticipant;
 import com.example.zolieapi.model.Match;
 import com.example.zolieapi.model.Message;
+import com.example.zolieapi.model.User;
 import com.example.zolieapi.model.enums.ConversationType;
 import com.example.zolieapi.model.enums.MatchStatus;
+import com.example.zolieapi.model.enums.MediaKind;
 import com.example.zolieapi.model.enums.MediaPurpose;
 import com.example.zolieapi.model.enums.MessageType;
 import com.example.zolieapi.model.enums.ParticipantState;
@@ -27,15 +30,19 @@ import com.example.zolieapi.model.id.ParticipantId;
 import com.example.zolieapi.repository.ConversationParticipantRepository;
 import com.example.zolieapi.repository.ConversationRepository;
 import com.example.zolieapi.repository.MatchRepository;
+import com.example.zolieapi.repository.MessageReactionRepository;
 import com.example.zolieapi.repository.MessageRepository;
 import com.example.zolieapi.repository.MessageRepository.UnreadRow;
 import com.example.zolieapi.repository.PostRepository;
 import com.example.zolieapi.repository.ReelRepository;
+import com.example.zolieapi.repository.UserRepository;
+import com.example.zolieapi.security.ActivityTracker;
 import com.example.zolieapi.security.RateLimiter;
 import com.example.zolieapi.service.ConversationService;
 import com.example.zolieapi.service.MediaService;
 import com.example.zolieapi.service.VisibilityService;
 import com.example.zolieapi.service.event.ConversationReadEvent;
+import com.example.zolieapi.service.event.MessageReactionEvent;
 import com.example.zolieapi.service.event.MessageSentEvent;
 import java.time.Duration;
 import java.time.Instant;
@@ -55,16 +62,19 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class ConversationServiceImpl implements ConversationService {
 
-    private static final Set<String> FOLDERS = Set.of("inbox", "requests", "dating");
+    private static final Set<String> FOLDERS = Set.of("inbox", "unread", "requests", "dating");
+    private static final int MAX_QUERY = 50;
     private static final int MAX_TEXT = 2000;
     private static final int DEFAULT_MESSAGE_PAGE = 30;
 
     private final ConversationRepository conversationRepository;
     private final ConversationParticipantRepository participantRepository;
     private final MessageRepository messageRepository;
+    private final MessageReactionRepository reactionRepository;
     private final MatchRepository matchRepository;
     private final PostRepository postRepository;
     private final ReelRepository reelRepository;
+    private final UserRepository userRepository;
     private final VisibilityService visibilityService;
     private final MediaService mediaService;
     private final RateLimiter rateLimiter;
@@ -74,15 +84,18 @@ public class ConversationServiceImpl implements ConversationService {
 
     @Override
     @Transactional(readOnly = true)
-    public CursorPage<ConversationResponse> list(UUID userId, String folder, String cursor, Integer limit) {
+    public CursorPage<ConversationResponse> list(UUID userId, String folder, String query, String cursor,
+                                                 Integer limit) {
         String normalized = folder == null ? "inbox" : folder.toLowerCase();
         if (!FOLDERS.contains(normalized)) {
-            throw ApiException.invalid("folder must be one of: inbox, requests, dating");
+            throw ApiException.invalid("folder must be one of: inbox, unread, requests, dating");
         }
         int size = CursorPage.limit(limit);
         Cursor from = Cursor.decode(cursor);
+        String text = Texts.clean(query, MAX_QUERY, "q");
+        String pattern = text == null ? null : Texts.likePattern(text);
         List<Conversation> conversations =
-                conversationRepository.findForUser(userId, normalized, from.time(), from.id(), size + 1);
+                conversationRepository.findForUser(userId, normalized, pattern, from.time(), from.id(), size + 1);
         return CursorPage.of(conversations, size,
                 conversation -> new Cursor(sortTime(conversation), conversation.getId()),
                 page -> toResponses(userId, page));
@@ -94,7 +107,12 @@ public class ConversationServiceImpl implements ConversationService {
         if (userId.equals(otherUserId)) {
             throw ApiException.rule("You cannot message yourself.");
         }
-        visibilityService.requireReachableUser(userId, otherUserId);
+        User other = visibilityService.requireReachableUser(userId, otherUserId);
+        boolean alreadyOpen = conversationRepository
+                .findRegular(Pairs.first(userId, otherUserId), Pairs.second(userId, otherUserId)).isPresent();
+        if (!alreadyOpen && !visibilityService.allows(other.getWhoCanMessage(), otherUserId, userId)) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "This person does not accept messages from you.");
+        }
         Conversation conversation = findOrCreateRegular(userId, otherUserId);
         return toResponses(userId, List.of(conversation)).get(0);
     }
@@ -126,6 +144,7 @@ public class ConversationServiceImpl implements ConversationService {
         rateLimiter.check("message", userId, 30, Duration.ofMinutes(1));
         ConversationParticipant participant = requireParticipant(userId, conversationId);
         UUID recipientId = requireReachable(userId, conversationId);
+        requireAcceptsMessages(userId, recipientId, conversationId);
 
         Message draft = buildMessage(userId, recipientId, conversationId, request);
         participant.setState(ParticipantState.INBOX);
@@ -146,8 +165,10 @@ public class ConversationServiceImpl implements ConversationService {
         if (participant.getLastReadAt() == null || readUpTo.isAfter(participant.getLastReadAt())) {
             participant.setLastReadAt(readUpTo);
         }
-        eventPublisher.publishEvent(
-                new ConversationReadEvent(conversationId, userId, otherUserId, participant.getLastReadAt()));
+        if (userRepository.findById(userId).map(User::isReadReceipts).orElse(true)) {
+            eventPublisher.publishEvent(
+                    new ConversationReadEvent(conversationId, userId, otherUserId, participant.getLastReadAt()));
+        }
         return new ReadReceiptResponse(conversationId, userId, participant.getLastReadAt());
     }
 
@@ -163,6 +184,45 @@ public class ConversationServiceImpl implements ConversationService {
         ConversationParticipant participant = requireParticipant(userId, conversationId);
         participant.setClearedAt(Instant.now());
         participant.setLastReadAt(Instant.now());
+    }
+
+    @Override
+    @Transactional
+    public void setMuted(UUID userId, UUID conversationId, boolean muted) {
+        requireParticipant(userId, conversationId).setMuted(muted);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CursorPage<MessageResponse> listMedia(UUID userId, UUID conversationId, String cursor, Integer limit) {
+        ConversationParticipant participant = requireParticipant(userId, conversationId);
+        requireReachable(userId, conversationId);
+        int size = CursorPage.limit(limit);
+        Cursor from = Cursor.decode(cursor);
+        Instant visibleAfter = participant.getClearedAt() == null ? Instant.EPOCH : participant.getClearedAt();
+        List<Message> messages =
+                messageRepository.findMediaPage(conversationId, visibleAfter, from.time(), from.id(), size + 1);
+        return CursorPage.of(messages, size, message -> new Cursor(message.getCreatedAt(), message.getId()),
+                messageMapper::toResponses);
+    }
+
+    @Override
+    @Transactional
+    public MessageResponse react(UUID userId, UUID messageId, String emoji) {
+        Message message = requireReactable(userId, messageId);
+        String cleaned = Reactions.require(emoji);
+        reactionRepository.upsert(messageId, userId, cleaned);
+        publishReaction(userId, message, cleaned);
+        return messageMapper.toResponse(message);
+    }
+
+    @Override
+    @Transactional
+    public MessageResponse removeReaction(UUID userId, UUID messageId) {
+        Message message = requireReactable(userId, messageId);
+        reactionRepository.delete(messageId, userId);
+        publishReaction(userId, message, null);
+        return messageMapper.toResponse(message);
     }
 
     @Override
@@ -226,9 +286,12 @@ public class ConversationServiceImpl implements ConversationService {
                 .text(Texts.clean(request.text(), MAX_TEXT, "text"));
         switch (type) {
             case TEXT -> Texts.required(request.text(), MAX_TEXT, "text");
-            case IMAGE -> {
+            case IMAGE, VOICE -> {
                 requireField(request.mediaId(), "mediaId");
-                mediaService.requireUsable(userId, request.mediaId(), MediaPurpose.CHAT);
+                MediaKind expected = type == MessageType.VOICE ? MediaKind.AUDIO : MediaKind.IMAGE;
+                if (mediaService.requireUsable(userId, request.mediaId(), MediaPurpose.CHAT).getKind() != expected) {
+                    throw ApiException.rule("The file does not match the message type.");
+                }
                 message.mediaId(request.mediaId());
             }
             case POST_SHARE -> {
@@ -255,9 +318,10 @@ public class ConversationServiceImpl implements ConversationService {
         return switch (type.trim().toLowerCase()) {
             case "text" -> MessageType.TEXT;
             case "image" -> MessageType.IMAGE;
+            case "voice" -> MessageType.VOICE;
             case "shared_post", "post_share" -> MessageType.POST_SHARE;
             case "shared_reel", "reel_share" -> MessageType.REEL_SHARE;
-            default -> throw ApiException.invalid("type must be one of: text, image, shared_post, shared_reel");
+            default -> throw ApiException.invalid("type must be one of: text, image, voice, shared_post, shared_reel");
         };
     }
 
@@ -271,6 +335,34 @@ public class ConversationServiceImpl implements ConversationService {
         if (!visibleToBoth) {
             throw ApiException.rule("This cannot be shared with this person.");
         }
+    }
+
+    private void requireAcceptsMessages(UUID senderId, UUID recipientId, UUID conversationId) {
+        boolean pendingRequest = participantRepository.findById(new ParticipantId(conversationId, recipientId))
+                .map(recipient -> recipient.getState() == ParticipantState.REQUEST)
+                .orElse(false);
+        if (!pendingRequest) {
+            return;
+        }
+        User recipient = visibilityService.requireActiveUser(recipientId);
+        if (!visibilityService.allows(recipient.getWhoCanMessage(), recipientId, senderId)) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "This person does not accept messages from you.");
+        }
+    }
+
+    private Message requireReactable(UUID userId, UUID messageId) {
+        Message message = messageRepository.findById(messageId)
+                .filter(found -> found.getDeletedAt() == null)
+                .orElseThrow(ApiException::notFound);
+        requireParticipant(userId, message.getConversationId());
+        requireReachable(userId, message.getConversationId());
+        return message;
+    }
+
+    private void publishReaction(UUID userId, Message message, String emoji) {
+        UUID otherUserId = requireReachable(userId, message.getConversationId());
+        eventPublisher.publishEvent(
+                new MessageReactionEvent(message.getConversationId(), message.getId(), userId, otherUserId, emoji));
     }
 
     private Message store(Message draft, UUID recipientId) {
@@ -347,9 +439,16 @@ public class ConversationServiceImpl implements ConversationService {
             return List.of();
         }
         List<UUID> ids = conversations.stream().map(Conversation::getId).toList();
-        Map<UUID, UserSummaryResponse> users = userMapper.summariesById(conversations.stream()
+        List<UUID> otherIds = conversations.stream()
                 .map(conversation -> Pairs.other(conversation.getUserAId(), conversation.getUserBId(), userId))
-                .toList());
+                .toList();
+        Map<UUID, UserSummaryResponse> users = userMapper.summariesById(otherIds);
+        boolean viewerShowsStatus = userRepository.findById(userId).map(User::isShowOnlineStatus).orElse(false);
+        Set<UUID> online = userRepository.findAllById(otherIds).stream()
+                .filter(other -> viewerShowsStatus && other.isShowOnlineStatus()
+                        && ActivityTracker.isOnline(other.getLastActiveAt()))
+                .map(User::getId)
+                .collect(Collectors.toSet());
         Map<UUID, ConversationParticipant> participants = participantRepository.findForUser(userId, ids).stream()
                 .collect(Collectors.toMap(participant -> participant.getId().getConversationId(), Function.identity()));
         Map<UUID, Long> unread = messageRepository.countUnread(userId, ids).stream()
@@ -365,6 +464,7 @@ public class ConversationServiceImpl implements ConversationService {
                             conversation.getId(),
                             Enums.value(conversation.getType()),
                             users.get(otherId),
+                            online.contains(otherId),
                             latest.get(conversation.getId()),
                             unread.getOrDefault(conversation.getId(), 0L),
                             participant.getState() == ParticipantState.REQUEST,

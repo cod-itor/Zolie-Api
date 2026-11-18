@@ -12,13 +12,17 @@ public record ReelResponse(
         String videoUrl,
         String thumbnailUrl,
         int durationMs,
+        PlaceResponse place,
+        SoundResponse sound,
         int likeCount,
         int commentCount,
         int shareCount,
         long viewCount,
         boolean likedByMe,
+        String myReaction,
         boolean savedByMe,
         boolean isMine,
+        boolean commentsEnabled,
         Instant createdAt
 ) {
 }

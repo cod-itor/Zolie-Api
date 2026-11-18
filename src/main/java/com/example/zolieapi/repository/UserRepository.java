@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
 
@@ -33,6 +34,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     @Query("update User u set u.postCount = u.postCount + :delta where u.id = :id")
     void addPostCount(UUID id, int delta);
 
+    @Transactional
     @Modifying
     @Query("update User u set u.lastActiveAt = current_timestamp where u.id = :id")
     void touchLastActive(UUID id);
@@ -114,6 +116,27 @@ public interface UserRepository extends JpaRepository<User, UUID> {
 
     @Modifying
     @Query(value = """
+            update comments set like_count = like_count - 1
+            where id in (select comment_id from comment_likes where user_id = :userId)
+            """, nativeQuery = true)
+    void releaseCommentLikeCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update events set going_count = going_count - 1
+            where id in (select event_id from event_rsvps where user_id = :userId and status = 'going')
+            """, nativeQuery = true)
+    void releaseEventGoingCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
+            update events set interested_count = interested_count - 1
+            where id in (select event_id from event_rsvps where user_id = :userId and status = 'interested')
+            """, nativeQuery = true)
+    void releaseEventInterestedCounts(UUID userId);
+
+    @Modifying
+    @Query(value = """
             update poll_options set vote_count = vote_count - 1
             where id in (select option_id from poll_votes where user_id = :userId)
             """, nativeQuery = true)
@@ -142,6 +165,35 @@ public interface UserRepository extends JpaRepository<User, UUID> {
             where r.id = gone.reel_id
             """, nativeQuery = true)
     void releaseReelCommentCounts(UUID userId);
+
+    @Query(value = """
+            select a.* from follows mine
+            join follows theirs on theirs.follower_id = mine.followed_id and theirs.followed_id = :target
+                 and theirs.status = 'accepted'
+            join users a on a.id = mine.followed_id
+            where mine.follower_id = :viewer and mine.status = 'accepted' and a.status = 'active'
+            order by a.follower_count desc, a.id limit :limit
+            """, nativeQuery = true)
+    List<User> findMutualFollowers(UUID viewer, UUID target, int limit);
+
+    @Query(value = """
+            select count(*) from follows mine
+            join follows theirs on theirs.follower_id = mine.followed_id and theirs.followed_id = :target
+                 and theirs.status = 'accepted'
+            join users a on a.id = mine.followed_id
+            where mine.follower_id = :viewer and mine.status = 'accepted' and a.status = 'active'
+            """, nativeQuery = true)
+    long countMutualFollowers(UUID viewer, UUID target);
+
+    @Query(value = "select u.* from users u where u.delete_after is not null and u.delete_after <= now() order by u.delete_after limit :limit",
+            nativeQuery = true)
+    List<User> findDueForDeletion(int limit);
+
+    @Query(value = """
+            select a.* from event_rsvps r join users a on a.id = r.user_id
+            where r.event_id = :eventId and r.status = :status and
+            """ + VisibilitySql.AUTHOR_ACTIVE + " and " + VisibilitySql.NOT_BLOCKED + PAGE, nativeQuery = true)
+    List<User> findEventAttendees(UUID eventId, String status, UUID viewer, UUID after, int limit);
 
     List<User> findByUsernameIn(Collection<String> usernames);
 

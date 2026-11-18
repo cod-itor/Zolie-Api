@@ -36,6 +36,10 @@ public class DeviceToken {
     @Builder.Default
     private String platform = "android";
 
+    private String deviceName;
+
+    private Instant lastSeenAt;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;

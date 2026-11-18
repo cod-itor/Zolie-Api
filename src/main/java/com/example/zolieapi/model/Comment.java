@@ -14,10 +14,12 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 @Entity
 @Table(name = "comments")
+@DynamicUpdate
 @Getter
 @Setter
 @Builder
@@ -38,6 +40,8 @@ public class Comment {
     private UUID parentId;
 
     private String text;
+
+    private int likeCount;
 
     @CreationTimestamp
     @Column(updatable = false)

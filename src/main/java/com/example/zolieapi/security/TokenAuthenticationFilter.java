@@ -26,6 +26,7 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
     private static final String BEARER = "Bearer ";
 
     private final TokenAuthenticator tokenAuthenticator;
+    private final ActivityTracker activityTracker;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -37,6 +38,9 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
         }
         try {
             AuthUser authUser = tokenAuthenticator.authenticate(header.substring(BEARER.length()).trim());
+            if (authUser.isSynced()) {
+                activityTracker.touch(authUser.userId());
+            }
             SecurityContextHolder.getContext().setAuthentication(
                     new UsernamePasswordAuthenticationToken(authUser, null, authorities(authUser)));
         } catch (ApiException e) {

@@ -6,6 +6,7 @@ import jakarta.persistence.Converter;
 public enum MessageType {
     TEXT,
     IMAGE,
+    VOICE,
     INTRO,
     STORY_REPLY,
     POST_SHARE,

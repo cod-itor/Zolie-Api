@@ -3,6 +3,7 @@ package com.example.zolieapi.service.impl;
 import com.example.zolieapi.common.Cursor;
 import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.common.Enums;
+import com.example.zolieapi.common.Reactions;
 import com.example.zolieapi.common.Texts;
 import com.example.zolieapi.dto.request.CreateReelRequest;
 import com.example.zolieapi.dto.request.ReelViewRequest;
@@ -21,7 +22,10 @@ import com.example.zolieapi.model.enums.ReelStatus;
 import com.example.zolieapi.model.enums.Visibility;
 import com.example.zolieapi.repository.ReelRepository;
 import com.example.zolieapi.security.RateLimiter;
+import com.example.zolieapi.service.HashtagService;
 import com.example.zolieapi.service.IdempotencyService;
+import com.example.zolieapi.service.PlaceService;
+import com.example.zolieapi.service.SoundService;
 import com.example.zolieapi.service.MediaService;
 import com.example.zolieapi.service.MentionService;
 import com.example.zolieapi.service.NotificationService;
@@ -50,6 +54,9 @@ public class ReelServiceImpl implements ReelService {
     private final ReelRepository reelRepository;
     private final MediaService mediaService;
     private final MentionService mentionService;
+    private final HashtagService hashtagService;
+    private final SoundService soundService;
+    private final PlaceService placeService;
     private final NotificationService notificationService;
     private final VisibilityService visibilityService;
     private final IdempotencyService idempotencyService;
@@ -75,11 +82,17 @@ public class ReelServiceImpl implements ReelService {
                 .videoId(video.getId())
                 .caption(caption)
                 .durationMs(video.getDurationMs())
+                .placeId(requirePlace(request.placeId()))
+                .soundId(request.soundId() == null
+                        ? soundService.createOriginal(userId, video.getDurationMs())
+                        : soundService.use(request.soundId()))
+                .commentsEnabled(!Boolean.FALSE.equals(request.commentsEnabled()))
                 .visibility(request.visibility() == null
                         ? Visibility.PUBLIC
                         : Enums.parse(Visibility.class, request.visibility(), "visibility"))
                 .build());
-        mentionService.mention(userId, userId, caption, null, NotificationTarget.REEL, reel.getId());
+        hashtagService.tagReel(reel.getId(), caption);
+        mentionService.mention(userId, caption, request.taggedUserIds(), NotificationTarget.REEL, reel.getId());
         idempotencyService.remember(userId, idempotencyKey, RESOURCE, reel.getId());
         return reelMapper.toResponse(userId, reel);
     }
@@ -124,6 +137,14 @@ public class ReelServiceImpl implements ReelService {
 
     @Override
     @Transactional(readOnly = true)
+    public CursorPage<ReelResponse> listBySound(UUID viewerId, UUID soundId, String cursor, Integer limit) {
+        int size = CursorPage.limit(limit);
+        Cursor from = Cursor.decode(cursor);
+        return page(viewerId, reelRepository.findBySound(soundId, viewerId, from.time(), from.id(), size + 1), size);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public CursorPage<ReelResponse> listSaved(UUID userId, String cursor, Integer limit) {
         int size = CursorPage.limit(limit);
         Cursor from = Cursor.decode(cursor);
@@ -132,14 +153,17 @@ public class ReelServiceImpl implements ReelService {
 
     @Override
     @Transactional
-    public LikeResponse like(UUID userId, UUID reelId) {
+    public LikeResponse like(UUID userId, UUID reelId, String reaction) {
         rateLimiter.check("like", userId, 120, Duration.ofMinutes(1));
+        String emoji = Reactions.parse(reaction);
         Reel reel = requireReady(userId, reelId);
-        if (reelRepository.insertLike(reelId, userId) == 1) {
+        if (reelRepository.insertLike(reelId, userId, emoji) == 1) {
             reelRepository.addLikeCount(reelId, 1);
             notificationService.send(reel.getAuthorId(), userId, NotificationType.REEL_LIKE, NotificationTarget.REEL, reelId);
+        } else if (reaction != null && !reaction.isBlank()) {
+            reelRepository.updateReaction(reelId, userId, emoji);
         }
-        return new LikeResponse(true, reelRepository.findLikeCount(reelId));
+        return new LikeResponse(true, emoji, reelRepository.findLikeCount(reelId));
     }
 
     @Override
@@ -151,7 +175,7 @@ public class ReelServiceImpl implements ReelService {
         if (reelRepository.deleteLike(reelId, userId) == 1) {
             reelRepository.addLikeCount(reelId, -1);
         }
-        return new LikeResponse(false, reelRepository.findLikeCount(reelId));
+        return new LikeResponse(false, null, reelRepository.findLikeCount(reelId));
     }
 
     @Override
@@ -191,6 +215,11 @@ public class ReelServiceImpl implements ReelService {
                         .filter(reel -> reel.getStatus() == ReelStatus.READY)
                         .isPresent())
                 .forEach(reelRepository::addView);
+    }
+
+    private UUID requirePlace(UUID placeId) {
+        placeService.requireExists(placeId);
+        return placeId;
     }
 
     private Reel requireVisible(UUID viewerId, UUID reelId) {

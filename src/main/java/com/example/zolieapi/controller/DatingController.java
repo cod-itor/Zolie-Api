@@ -8,6 +8,9 @@ import com.example.zolieapi.dto.request.DatingPhotosRequest;
 import com.example.zolieapi.dto.request.DatingPreferencesRequest;
 import com.example.zolieapi.dto.request.DatingProfileRequest;
 import com.example.zolieapi.dto.request.DatingStatusRequest;
+import com.example.zolieapi.dto.request.PromptAnswersRequest;
+import com.example.zolieapi.dto.response.CountResponse;
+import com.example.zolieapi.dto.response.DatingPromptResponse;
 import com.example.zolieapi.dto.response.DatingLikeResponse;
 import com.example.zolieapi.dto.response.DatingPreferencesResponse;
 import com.example.zolieapi.dto.response.DatingProfileResponse;
@@ -20,6 +23,7 @@ import com.example.zolieapi.service.DatingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -68,6 +72,24 @@ public class DatingController {
         return datingService.replacePhotos(currentUser.id(), request.mediaIds());
     }
 
+    @GetMapping("/prompts")
+    @Operation(summary = "List the prompt questions in English and Khmer")
+    public List<DatingPromptResponse> listPrompts() {
+        return datingService.listPrompts();
+    }
+
+    @PutMapping("/profile/prompts")
+    @Operation(summary = "Set my prompt answers in order (up to 3)")
+    public DatingProfileResponse replacePromptAnswers(@Valid @RequestBody PromptAnswersRequest request) {
+        return datingService.replacePromptAnswers(currentUser.id(), request.answers());
+    }
+
+    @GetMapping("/likes/received/count")
+    @Operation(summary = "How many people sparked me this week and are waiting for an answer")
+    public CountResponse countReceivedThisWeek() {
+        return datingService.countReceivedThisWeek(currentUser.id());
+    }
+
     @PatchMapping("/profile/status")
     @Operation(summary = "Turn Dating on, pause it or turn it off")
     public DatingProfileResponse changeStatus(@Valid @RequestBody DatingStatusRequest request) {
@@ -94,7 +116,7 @@ public class DatingController {
     }
 
     @GetMapping("/discovery")
-    @Operation(summary = "Get the next dating cards, with distance shown as a band")
+    @Operation(summary = "Get today's remaining picks (5 a day), with distance shown as a band")
     public DiscoveryResponse discover(@RequestParam(required = false) Integer limit) {
         return datingService.discover(currentUser.id(), limit);
     }
@@ -115,7 +137,8 @@ public class DatingController {
     @PostMapping("/intros")
     @Operation(summary = "Send the one intro message allowed per person (409 on a second try)")
     public DatingLikeResponse sendIntro(@Valid @RequestBody DatingIntroRequest request) {
-        return datingService.sendIntro(currentUser.id(), request.toUserId(), request.message());
+        return datingService.sendIntro(currentUser.id(), request.toUserId(), request.message(),
+                request.promptAnswerId());
     }
 
     @GetMapping("/likes/received")

@@ -45,4 +45,10 @@ public class Story {
     private Instant createdAt;
 
     private Instant expiresAt;
+
+    private String textContent;
+
+    private String textBackground;
+
+    private UUID sharedPostId;
 }

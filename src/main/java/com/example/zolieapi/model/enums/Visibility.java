@@ -5,7 +5,9 @@ import jakarta.persistence.Converter;
 
 public enum Visibility {
     PUBLIC,
-    FOLLOWERS;
+    FOLLOWERS,
+    CLOSE_FRIENDS,
+    PRIVATE;
 
     @Converter(autoApply = true)
     public static class JpaConverter extends LowercaseEnumConverter<Visibility> {

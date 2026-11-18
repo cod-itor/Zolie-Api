@@ -48,7 +48,9 @@ public class MediaServiceImpl implements MediaService {
     private static final Map<MediaPurpose, Set<MediaKind>> KINDS_BY_PURPOSE = Map.of(
             MediaPurpose.PROFILE, Set.of(MediaKind.IMAGE),
             MediaPurpose.DATING, Set.of(MediaKind.IMAGE),
-            MediaPurpose.CHAT, Set.of(MediaKind.IMAGE),
+            MediaPurpose.CHAT, Set.of(MediaKind.IMAGE, MediaKind.AUDIO),
+            MediaPurpose.EVENT, Set.of(MediaKind.IMAGE),
+            MediaPurpose.SOUND, Set.of(MediaKind.AUDIO),
             MediaPurpose.REEL, Set.of(MediaKind.VIDEO),
             MediaPurpose.STORY, Set.of(MediaKind.IMAGE, MediaKind.VIDEO),
             MediaPurpose.POST, Set.of(MediaKind.IMAGE, MediaKind.VIDEO, MediaKind.AUDIO));
@@ -179,7 +181,7 @@ public class MediaServiceImpl implements MediaService {
     }
 
     private MediaPurpose parsePurpose(String purpose) {
-        if ("avatar".equalsIgnoreCase(purpose)) {
+        if ("avatar".equalsIgnoreCase(purpose) || "cover".equalsIgnoreCase(purpose)) {
             return MediaPurpose.PROFILE;
         }
         MediaPurpose parsed = Enums.require(MediaPurpose.class, purpose, "purpose");

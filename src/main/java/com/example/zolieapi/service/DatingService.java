@@ -4,6 +4,9 @@ import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.dto.request.DatingLocationRequest;
 import com.example.zolieapi.dto.request.DatingPreferencesRequest;
 import com.example.zolieapi.dto.request.DatingProfileRequest;
+import com.example.zolieapi.dto.request.PromptAnswerRequest;
+import com.example.zolieapi.dto.response.CountResponse;
+import com.example.zolieapi.dto.response.DatingPromptResponse;
 import com.example.zolieapi.dto.response.DatingLikeResponse;
 import com.example.zolieapi.dto.response.DatingPreferencesResponse;
 import com.example.zolieapi.dto.response.DatingProfileResponse;
@@ -24,6 +27,12 @@ public interface DatingService {
 
     DatingProfileResponse replacePhotos(UUID userId, List<UUID> mediaIds);
 
+    List<DatingPromptResponse> listPrompts();
+
+    DatingProfileResponse replacePromptAnswers(UUID userId, List<PromptAnswerRequest> answers);
+
+    CountResponse countReceivedThisWeek(UUID userId);
+
     DatingProfileResponse changeStatus(UUID userId, String status);
 
     DatingPreferencesResponse getPreferences(UUID userId);
@@ -38,7 +47,7 @@ public interface DatingService {
 
     void pass(UUID userId, UUID toUserId);
 
-    DatingLikeResponse sendIntro(UUID userId, UUID toUserId, String message);
+    DatingLikeResponse sendIntro(UUID userId, UUID toUserId, String message, UUID promptAnswerId);
 
     CursorPage<ReceivedLikeResponse> listReceivedLikes(UUID userId, boolean introsOnly, String cursor, Integer limit);
 

@@ -7,6 +7,7 @@ public record ConversationResponse(
         UUID id,
         String type,
         UserSummaryResponse otherUser,
+        boolean otherUserOnline,
         MessageResponse lastMessage,
         long unreadCount,
         boolean isRequest,

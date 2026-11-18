@@ -11,6 +11,8 @@ import com.example.zolieapi.repository.PostRepository;
 import com.example.zolieapi.repository.ReelRepository;
 import com.example.zolieapi.repository.UserRepository;
 import com.example.zolieapi.security.RateLimiter;
+import com.example.zolieapi.service.HashtagService;
+import com.example.zolieapi.service.PlaceService;
 import com.example.zolieapi.service.SearchService;
 import java.time.Duration;
 import java.util.UUID;
@@ -27,6 +29,8 @@ public class SearchServiceImpl implements SearchService {
     private final UserRepository userRepository;
     private final PostRepository postRepository;
     private final ReelRepository reelRepository;
+    private final HashtagService hashtagService;
+    private final PlaceService placeService;
     private final RateLimiter rateLimiter;
     private final UserMapper userMapper;
     private final PostMapper postMapper;
@@ -40,7 +44,7 @@ public class SearchServiceImpl implements SearchService {
         if (text == null) {
             return CursorPage.empty();
         }
-        String pattern = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+        String pattern = Texts.likePattern(text);
         int size = CursorPage.limit(limit);
         Cursor from = Cursor.decode(cursor);
         return switch (type == null ? "users" : type.toLowerCase()) {
@@ -52,7 +56,9 @@ public class SearchServiceImpl implements SearchService {
             case "reels" -> CursorPage.of(reelRepository.search(pattern, viewerId, from.time(), from.id(), size + 1),
                     size, reel -> new Cursor(reel.getCreatedAt(), reel.getId()),
                     page -> reelMapper.toResponses(viewerId, page));
-            default -> throw ApiException.invalid("type must be one of: users, posts, reels");
+            case "hashtags" -> new CursorPage<>(hashtagService.search(text), null);
+            case "places" -> new CursorPage<>(placeService.search(text), null);
+            default -> throw ApiException.invalid("type must be one of: users, posts, reels, hashtags, places");
         };
     }
 }

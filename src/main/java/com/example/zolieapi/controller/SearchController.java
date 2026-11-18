@@ -21,10 +21,10 @@ public class SearchController {
     private final CurrentUser currentUser;
 
     @GetMapping("/search")
-    @Operation(summary = "Search people by name, or public posts and Reels by caption (works for Khmer)")
+    @Operation(summary = "Search people, public posts and Reels, hashtags or places (works for Khmer)")
     public CursorPage<?> search(
             @RequestParam String q,
-            @Parameter(schema = @Schema(allowableValues = {"users", "posts", "reels"}))
+            @Parameter(schema = @Schema(allowableValues = {"users", "posts", "reels", "hashtags", "places"}))
             @RequestParam(defaultValue = "users") String type,
             @RequestParam(required = false) String cursor,
             @RequestParam(required = false) Integer limit) {

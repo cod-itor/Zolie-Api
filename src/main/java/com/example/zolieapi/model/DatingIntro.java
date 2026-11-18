@@ -7,6 +7,7 @@ import jakarta.persistence.EmbeddedId;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -34,4 +35,6 @@ public class DatingIntro {
     @CreationTimestamp
     @Column(updatable = false)
     private Instant sentAt;
+
+    private UUID promptAnswerId;
 }

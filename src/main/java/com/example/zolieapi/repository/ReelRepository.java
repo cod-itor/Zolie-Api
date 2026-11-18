@@ -27,6 +27,10 @@ public interface ReelRepository extends JpaRepository<Reel, UUID> {
     @Query(value = "select r.*" + VISIBLE + " and r.author_id = :author " + PAGE, nativeQuery = true)
     List<Reel> findByAuthor(UUID author, UUID viewer, Instant time, UUID id, int limit);
 
+    @Query(value = "select exists (select 1 from reels r join users a on a.id = r.author_id "
+            + "where r.id = :reelId and r.deleted_at is null and " + VisibilitySql.CAN_SEE_REEL + ")", nativeQuery = true)
+    boolean isVisibleOnceReady(UUID reelId, UUID viewer);
+
     @Query(value = "select r.*" + VISIBLE + " and r.id = :reelId", nativeQuery = true)
     Optional<Reel> findVisible(UUID reelId, UUID viewer);
 
@@ -48,10 +52,33 @@ public interface ReelRepository extends JpaRepository<Reel, UUID> {
             """, nativeQuery = true)
     List<Reel> lockNextToProcess(int limit);
 
+    @Query(value = "select r.*" + VISIBLE + " and r.status = 'ready' and r.sound_id = :soundId " + PAGE, nativeQuery = true)
+    List<Reel> findBySound(UUID soundId, UUID viewer, Instant time, UUID id, int limit);
+
+    @Query(value = "select r.*" + VISIBLE + """
+             and r.status = 'ready' and a.account_type = 'public' and r.visibility = 'public'
+             and exists (select 1 from reel_hashtags rh join hashtags h on h.id = rh.hashtag_id
+                 where rh.reel_id = r.id and h.tag = :tag)
+            """ + PAGE, nativeQuery = true)
+    List<Reel> findByHashtag(String tag, UUID viewer, Instant time, UUID id, int limit);
+
     @Modifying
-    @Query(value = "insert into reel_likes (reel_id, user_id) values (:reelId, :userId) on conflict do nothing",
+    @Query(value = """
+            insert into reel_likes (reel_id, user_id, reaction) values (:reelId, :userId, :reaction)
+            on conflict do nothing
+            """, nativeQuery = true)
+    int insertLike(UUID reelId, UUID userId, String reaction);
+
+    @Modifying
+    @Query(value = "update reel_likes set reaction = :reaction where reel_id = :reelId and user_id = :userId",
             nativeQuery = true)
-    int insertLike(UUID reelId, UUID userId);
+    void updateReaction(UUID reelId, UUID userId, String reaction);
+
+    @Query(value = """
+            select reel_id as contentId, reaction as reaction from reel_likes
+            where user_id = :userId and reel_id in (:reelIds)
+            """, nativeQuery = true)
+    List<PostRepository.ReactionRow> findMyReactions(UUID userId, Collection<UUID> reelIds);
 
     @Modifying
     @Query(value = "delete from reel_likes where reel_id = :reelId and user_id = :userId", nativeQuery = true)
@@ -65,9 +92,6 @@ public interface ReelRepository extends JpaRepository<Reel, UUID> {
     @Modifying
     @Query(value = "delete from saved_reels where reel_id = :reelId and user_id = :userId", nativeQuery = true)
     int deleteSave(UUID reelId, UUID userId);
-
-    @Query(value = "select reel_id from reel_likes where user_id = :userId and reel_id in (:reelIds)", nativeQuery = true)
-    List<UUID> findLikedIds(UUID userId, Collection<UUID> reelIds);
 
     @Query(value = "select reel_id from saved_reels where user_id = :userId and reel_id in (:reelIds)", nativeQuery = true)
     List<UUID> findSavedIds(UUID userId, Collection<UUID> reelIds);

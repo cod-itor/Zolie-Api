@@ -57,6 +57,16 @@ public class ScheduledJobs {
         run("idempotency purge", maintenanceService::purgeIdempotencyKeys);
     }
 
+    @Scheduled(fixedDelayString = "PT1H", initialDelayString = "PT7M")
+    public void completeAccountDeletions() {
+        run("account deletions", maintenanceService::completeAccountDeletions);
+    }
+
+    @Scheduled(fixedDelayString = "PT5M", initialDelayString = "PT45S")
+    public void sendEventReminders() {
+        run("event reminders", maintenanceService::sendEventReminders);
+    }
+
     private void run(String name, Runnable job) {
         try {
             job.run();

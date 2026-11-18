@@ -13,4 +13,8 @@ public interface MaintenanceService {
     void liftEndedSuspensions();
 
     void purgeIdempotencyKeys();
+
+    void completeAccountDeletions();
+
+    void sendEventReminders();
 }

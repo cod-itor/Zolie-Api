@@ -3,6 +3,7 @@ package com.example.zolieapi.controller;
 import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.dto.request.CreatePostRequest;
 import com.example.zolieapi.dto.request.PollVoteRequest;
+import com.example.zolieapi.dto.request.ReactionRequest;
 import com.example.zolieapi.dto.request.UpdatePostRequest;
 import com.example.zolieapi.dto.response.LikeResponse;
 import com.example.zolieapi.dto.response.PollResponse;
@@ -15,6 +16,7 @@ import com.example.zolieapi.service.PostService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -53,7 +55,7 @@ public class PostController {
     }
 
     @PatchMapping("/posts/{id}")
-    @Operation(summary = "Edit the caption and tags of my post")
+    @Operation(summary = "Edit my post: caption, tags, audience, location, pin, hide likes, comments on or off")
     public PostResponse update(@PathVariable UUID id, @Valid @RequestBody UpdatePostRequest request) {
         return postService.update(currentUser.id(), id, request);
     }
@@ -74,9 +76,9 @@ public class PostController {
     }
 
     @PutMapping("/posts/{id}/like")
-    @Operation(summary = "Like a post")
-    public LikeResponse like(@PathVariable UUID id) {
-        return postService.like(currentUser.id(), id);
+    @Operation(summary = "Like a post or react with an emoji; calling it again changes the reaction")
+    public LikeResponse like(@PathVariable UUID id, @RequestBody(required = false) ReactionRequest request) {
+        return postService.like(currentUser.id(), id, request == null ? null : request.reaction());
     }
 
     @DeleteMapping("/posts/{id}/like")
@@ -103,6 +105,26 @@ public class PostController {
     @Operation(summary = "Remove a post from my saved items")
     public SaveResponse unsave(@PathVariable UUID id) {
         return postService.unsave(currentUser.id(), id);
+    }
+
+    @PutMapping("/posts/{id}/hide")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Hide a post from my feed (Not interested)")
+    public void hide(@PathVariable UUID id) {
+        postService.hide(currentUser.id(), id);
+    }
+
+    @DeleteMapping("/posts/{id}/hide")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Show a hidden post in my feed again")
+    public void unhide(@PathVariable UUID id) {
+        postService.unhide(currentUser.id(), id);
+    }
+
+    @GetMapping("/users/{id}/posts/pinned")
+    @Operation(summary = "List the posts an account pinned to its profile")
+    public List<PostResponse> listPinned(@PathVariable UUID id) {
+        return postService.listPinned(currentUser.idOrGuest(), id);
     }
 
     @PostMapping("/posts/{id}/shares")

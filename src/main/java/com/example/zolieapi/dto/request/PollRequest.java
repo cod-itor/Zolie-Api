@@ -7,6 +7,8 @@ import java.util.List;
 
 public record PollRequest(
         @NotEmpty @Schema(example = "[\"Amok\", \"Lok lak\"]") List<String> options,
-        Instant endsAt
+        Instant endsAt,
+        Boolean allowMultiple,
+        Boolean showResultsBeforeVoting
 ) {
 }

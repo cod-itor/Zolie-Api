@@ -29,6 +29,7 @@ public enum ErrorCode {
     RULE_VIOLATION(HttpStatus.UNPROCESSABLE_ENTITY, "The request breaks a rule."),
     UNDER_13(HttpStatus.UNPROCESSABLE_ENTITY, "You must be at least 13 years old."),
     POLL_ENDED(HttpStatus.UNPROCESSABLE_ENTITY, "This poll has ended."),
+    DAILY_PICKS_USED(HttpStatus.TOO_MANY_REQUESTS, "You used all of today's picks. New picks arrive tomorrow."),
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "Too many requests. Try again later."),
     INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "Something went wrong.");
 

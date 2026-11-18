@@ -12,7 +12,7 @@ public class Texts {
         if (text == null) {
             return null;
         }
-        String normalized = Normalizer.normalize(text.trim(), Normalizer.Form.NFC);
+        String normalized = Normalizer.normalize(text.replace("\u0000", "").trim(), Normalizer.Form.NFC);
         return normalized.isEmpty() ? null : normalized;
     }
 
@@ -22,6 +22,10 @@ public class Texts {
             throw new ApiException(ErrorCode.RULE_VIOLATION, field + " must be at most " + maxCodePoints + " characters");
         }
         return cleaned;
+    }
+
+    public String likePattern(String text) {
+        return "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
     }
 
     public String required(String text, int maxCodePoints, String field) {

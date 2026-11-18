@@ -10,6 +10,7 @@ public enum NotificationType {
     POST_LIKE,
     REEL_LIKE,
     COMMENT,
+    COMMENT_LIKE,
     MENTION,
     MATCH,
     DATING_INTRO,
@@ -17,6 +18,7 @@ public enum NotificationType {
     STORY_REPLY,
     STICKER_RESPONSE,
     COUNTDOWN_ENDED,
+    EVENT_REMINDER,
     REPORT_RESOLVED,
     MODERATION_NOTICE;
 

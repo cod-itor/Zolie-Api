@@ -2,6 +2,7 @@ package com.example.zolieapi.controller;
 
 import com.example.zolieapi.common.CursorPage;
 import com.example.zolieapi.dto.request.CreateReelRequest;
+import com.example.zolieapi.dto.request.ReactionRequest;
 import com.example.zolieapi.dto.request.ReelViewsRequest;
 import com.example.zolieapi.dto.response.LikeResponse;
 import com.example.zolieapi.dto.response.ReelResponse;
@@ -83,8 +84,8 @@ public class ReelController {
 
     @PutMapping("/reels/{id}/like")
     @Operation(summary = "Like a Reel")
-    public LikeResponse like(@PathVariable UUID id) {
-        return reelService.like(currentUser.id(), id);
+    public LikeResponse like(@PathVariable UUID id, @RequestBody(required = false) ReactionRequest request) {
+        return reelService.like(currentUser.id(), id, request == null ? null : request.reaction());
     }
 
     @DeleteMapping("/reels/{id}/like")

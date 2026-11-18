@@ -38,8 +38,16 @@ public class SecurityConfig {
             API + "/comments/*/replies",
             API + "/users/*",
             API + "/users/*/posts",
+            API + "/users/*/posts/pinned",
             API + "/users/*/reels",
             API + "/interests",
+            API + "/help/articles",
+            API + "/events",
+            API + "/events/*",
+            API + "/hashtags/*/posts",
+            API + "/hashtags/*/reels",
+            API + "/places",
+            API + "/places/popular",
             API + "/usernames/*/availability"
     };
 

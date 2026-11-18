@@ -95,8 +95,11 @@ public class ReportTargetServiceImpl implements ReportTargetService {
             case REEL -> reelRepository.findById(targetId).ifPresent(this::removeReel);
             case COMMENT -> commentRepository.findById(targetId).filter(comment -> comment.getDeletedAt() == null)
                     .ifPresent(this::removeComment);
-            case STORY -> storyRepository.findById(targetId)
-                    .ifPresent(story -> mediaService.deleteAll(List.of(story.getMediaId())));
+            case STORY -> storyRepository.findById(targetId).ifPresent(story -> {
+                storyRepository.delete(story);
+                storyRepository.flush();
+                mediaService.deleteAll(Arrays.asList(story.getMediaId()));
+            });
             case MESSAGE -> messageRepository.findById(targetId).ifPresent(message -> message.setDeletedAt(Instant.now()));
         }
     }

@@ -15,6 +15,8 @@ public record DatingCardResponse(
         String city,
         String distanceBand,
         List<InterestResponse> interests,
-        List<MediaItemResponse> photos
+        List<InterestResponse> sharedInterests,
+        List<MediaItemResponse> photos,
+        List<PromptAnswerResponse> promptAnswers
 ) {
 }

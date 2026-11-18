@@ -1,7 +1,9 @@
 package com.example.zolieapi.controller;
 
+import com.example.zolieapi.dto.request.DeletionRequest;
 import com.example.zolieapi.dto.request.SyncRequest;
 import com.example.zolieapi.dto.request.UpdateProfileRequest;
+import com.example.zolieapi.dto.response.DeletionResponse;
 import com.example.zolieapi.dto.response.MeResponse;
 import com.example.zolieapi.security.CurrentUser;
 import com.example.zolieapi.service.AccountService;
@@ -46,9 +48,29 @@ public class AccountController {
         return accountService.updateProfile(currentUser.id(), request);
     }
 
+    @PostMapping("/deletion-request")
+    @Operation(summary = "Schedule my account for deletion in 30 days")
+    public DeletionResponse requestDeletion(@Valid @RequestBody(required = false) DeletionRequest request) {
+        return accountService.requestDeletion(currentUser.idAllowingSuspended(), request == null ? null : request.reason());
+    }
+
+    @DeleteMapping("/deletion-request")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Keep my account: cancel the scheduled deletion")
+    public void cancelDeletion() {
+        accountService.cancelDeletion(currentUser.idAllowingSuspended());
+    }
+
+    @PostMapping("/sessions/revoke")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Log out of my other devices")
+    public void revokeOtherSessions() {
+        accountService.revokeOtherSessions(currentUser.id());
+    }
+
     @DeleteMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Delete my account and all of its data")
+    @Operation(summary = "Delete my account and all of its data right now")
     public void deleteAccount() {
         accountService.deleteAccount(currentUser.idAllowingSuspended());
     }

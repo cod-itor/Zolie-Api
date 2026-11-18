@@ -18,11 +18,16 @@ import com.example.zolieapi.dto.response.UserSummaryResponse;
 import com.example.zolieapi.exception.ApiException;
 import com.example.zolieapi.exception.ErrorCode;
 import com.example.zolieapi.mapper.MessageMapper;
+import com.example.zolieapi.mapper.PostMapper;
 import com.example.zolieapi.mapper.UserMapper;
+import com.example.zolieapi.dto.response.PostResponse;
 import com.example.zolieapi.model.MediaAsset;
+import com.example.zolieapi.model.Post;
+import com.example.zolieapi.security.Viewer;
 import com.example.zolieapi.model.Message;
 import com.example.zolieapi.model.Story;
 import com.example.zolieapi.model.StorySticker;
+import com.example.zolieapi.model.User;
 import com.example.zolieapi.model.StoryStickerResponse;
 import com.example.zolieapi.model.enums.MediaKind;
 import com.example.zolieapi.model.enums.MediaPurpose;
@@ -31,6 +36,7 @@ import com.example.zolieapi.model.enums.NotificationTarget;
 import com.example.zolieapi.model.enums.NotificationType;
 import com.example.zolieapi.model.enums.StickerType;
 import com.example.zolieapi.model.enums.StoryAudience;
+import com.example.zolieapi.repository.PostRepository;
 import com.example.zolieapi.repository.StoryRepository;
 import com.example.zolieapi.repository.StoryRepository.RingRow;
 import com.example.zolieapi.repository.StoryStickerRepository;
@@ -45,7 +51,10 @@ import com.example.zolieapi.service.StoryService;
 import com.example.zolieapi.service.VisibilityService;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Objects;
+import java.util.stream.Stream;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -67,11 +76,14 @@ public class StoryServiceImpl implements StoryService {
     private static final int MAX_EMOJI = 16;
     private static final int MAX_ANSWER = 300;
     private static final int MAX_REPLY = 2000;
+    private static final int MAX_TEXT = 500;
 
     private final StoryRepository storyRepository;
     private final StoryStickerRepository stickerRepository;
     private final StoryStickerResponseRepository responseRepository;
     private final UserRepository userRepository;
+    private final PostRepository postRepository;
+    private final PostMapper postMapper;
     private final MediaService mediaService;
     private final ConversationService conversationService;
     private final NotificationService notificationService;
@@ -89,9 +101,16 @@ public class StoryServiceImpl implements StoryService {
             return toResponses(userId, List.of(requireVisible(userId, existing.get()))).get(0);
         }
         rateLimiter.check("story", userId, 30, Duration.ofHours(1));
-        MediaAsset media = mediaService.requireUsable(userId, request.mediaId(), MediaPurpose.STORY);
-        if (media.getKind() == MediaKind.AUDIO) {
-            throw ApiException.rule("A story needs a photo or a video.");
+        String text = Texts.clean(request.text(), MAX_TEXT, "text");
+        requireSingleContent(request, text);
+        if (request.mediaId() != null) {
+            MediaAsset media = mediaService.requireUsable(userId, request.mediaId(), MediaPurpose.STORY);
+            if (media.getKind() == MediaKind.AUDIO) {
+                throw ApiException.rule("A story needs a photo or a video.");
+            }
+        }
+        if (request.sharedPostId() != null) {
+            requireShareablePost(userId, request.sharedPostId());
         }
         List<StickerRequest> stickers = request.stickers() == null ? List.of() : request.stickers();
         validateStickers(stickers);
@@ -99,7 +118,10 @@ public class StoryServiceImpl implements StoryService {
         Instant now = Instant.now();
         Story story = storyRepository.save(Story.builder()
                 .authorId(userId)
-                .mediaId(media.getId())
+                .mediaId(request.mediaId())
+                .textContent(text)
+                .textBackground(Texts.clean(request.textBackground()))
+                .sharedPostId(request.sharedPostId())
                 .audience(request.audience() == null
                         ? StoryAudience.EVERYONE
                         : Enums.parse(StoryAudience.class, request.audience(), "audience"))
@@ -115,8 +137,9 @@ public class StoryServiceImpl implements StoryService {
     @Transactional
     public void delete(UUID userId, UUID storyId) {
         Story story = requireOwn(userId, storyId);
+        storyRepository.delete(story);
         storyRepository.flush();
-        mediaService.deleteAll(List.of(story.getMediaId()));
+        mediaService.deleteAll(Arrays.asList(story.getMediaId()));
     }
 
     @Override
@@ -160,6 +183,7 @@ public class StoryServiceImpl implements StoryService {
     public MessageResponse reply(UUID userId, UUID storyId, String text) {
         rateLimiter.check("message", userId, 30, Duration.ofMinutes(1));
         Story story = requireVisibleToOthers(userId, storyId);
+        requireAcceptsReplies(story.getAuthorId(), userId);
         Message message = conversationService.deliverDirect(userId, story.getAuthorId(), MessageType.STORY_REPLY,
                 Texts.required(text, MAX_REPLY, "text"), storyId);
         notificationService.send(story.getAuthorId(), userId, NotificationType.STORY_REPLY, NotificationTarget.STORY, storyId);
@@ -171,6 +195,7 @@ public class StoryServiceImpl implements StoryService {
     public MessageResponse answerSticker(UUID userId, UUID storyId, UUID stickerId, StickerAnswerRequest request) {
         rateLimiter.check("message", userId, 30, Duration.ofMinutes(1));
         Story story = requireVisibleToOthers(userId, storyId);
+        requireAcceptsReplies(story.getAuthorId(), userId);
         StorySticker sticker = requireSticker(storyId, stickerId);
         if (responseRepository.findByStickerIdAndResponderId(stickerId, userId).isPresent()) {
             throw new ApiException(ErrorCode.ALREADY_ANSWERED);
@@ -233,6 +258,28 @@ public class StoryServiceImpl implements StoryService {
         }
         if (!remind && existing.isPresent()) {
             responseRepository.delete(existing.get());
+        }
+    }
+
+    private void requireAcceptsReplies(UUID authorId, UUID userId) {
+        User author = visibilityService.requireActiveUser(authorId);
+        if (!visibilityService.allows(author.getStoryRepliesFrom(), authorId, userId)) {
+            throw new ApiException(ErrorCode.FORBIDDEN, "This person does not accept replies from you.");
+        }
+    }
+
+    private void requireSingleContent(CreateStoryRequest request, String text) {
+        long parts = Stream.of(request.mediaId(), text, request.sharedPostId()).filter(Objects::nonNull).count();
+        if (parts != 1) {
+            throw ApiException.rule("A moment needs exactly one of: mediaId, text or sharedPostId.");
+        }
+    }
+
+    private void requireShareablePost(UUID userId, UUID postId) {
+        Post post = postRepository.findVisible(postId, userId).orElseThrow(() -> ApiException.rule("The post was not found."));
+        boolean publicPost = postRepository.findVisible(postId, Viewer.GUEST).isPresent();
+        if (!post.getAuthorId().equals(userId) && !publicPost) {
+            throw ApiException.rule("Only public posts can be shared as a moment.");
         }
     }
 
@@ -335,6 +382,10 @@ public class StoryServiceImpl implements StoryService {
                 .findByResponderIdAndStickerIdIn(viewerId, stickers.stream().map(StorySticker::getId).toList())
                 .stream().collect(Collectors.toMap(StoryStickerResponse::getStickerId, Function.identity()));
         Map<UUID, List<StorySticker>> stickersByStory = stickers.stream().collect(Collectors.groupingBy(StorySticker::getStoryId));
+        List<Post> sharedPosts = stories.stream().map(Story::getSharedPostId).filter(Objects::nonNull).distinct()
+                .map(postId -> postRepository.findVisible(postId, viewerId)).flatMap(Optional::stream).toList();
+        Map<UUID, PostResponse> sharedById = postMapper.toResponses(viewerId, sharedPosts).stream()
+                .collect(Collectors.toMap(PostResponse::id, Function.identity()));
 
         return stories.stream()
                 .map(story -> {
@@ -343,6 +394,7 @@ public class StoryServiceImpl implements StoryService {
                             .map(sticker -> toStickerResponse(sticker, myResponses.get(sticker.getId()), mine))
                             .toList();
                     return new StoryResponse(story.getId(), authors.get(story.getAuthorId()), media.get(story.getMediaId()),
+                            story.getTextContent(), story.getTextBackground(), sharedById.get(story.getSharedPostId()),
                             Enums.value(story.getAudience()), mine || seen.contains(story.getId()), mine,
                             mine ? story.getViewCount() : null, stickerResponses, story.getCreatedAt(), story.getExpiresAt());
                 })

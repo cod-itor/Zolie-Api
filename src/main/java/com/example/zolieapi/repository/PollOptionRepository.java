@@ -29,6 +29,13 @@ public interface PollOptionRepository extends JpaRepository<PollOption, UUID> {
             """, nativeQuery = true)
     List<VoteRow> findVotes(UUID userId, Collection<UUID> postIds);
 
+    @Query(value = "select exists (select 1 from poll_votes where post_id = :postId and user_id = :userId)",
+            nativeQuery = true)
+    boolean hasVoted(UUID postId, UUID userId);
+
+    @Query(value = "select 1 from (select pg_advisory_xact_lock(hashtextextended(:key, 0))) locked", nativeQuery = true)
+    Integer lock(String key);
+
     interface VoteRow {
 
         UUID getPostId();

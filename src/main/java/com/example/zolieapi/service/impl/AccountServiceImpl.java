@@ -9,12 +9,13 @@ import com.example.zolieapi.dto.response.AvailabilityResponse;
 import com.example.zolieapi.dto.response.DatingSummaryResponse;
 import com.example.zolieapi.dto.response.MeResponse;
 import com.example.zolieapi.dto.response.ResolveLoginResponse;
-import com.example.zolieapi.dto.response.SettingsResponse;
 import com.example.zolieapi.exception.ApiException;
 import com.example.zolieapi.exception.ErrorCode;
+import com.example.zolieapi.mapper.SettingsMapper;
 import com.example.zolieapi.model.DatingProfile;
 import com.example.zolieapi.model.NotificationPreference;
 import com.example.zolieapi.model.User;
+import com.example.zolieapi.dto.response.DeletionResponse;
 import com.example.zolieapi.model.enums.AccountType;
 import com.example.zolieapi.model.enums.MediaPurpose;
 import com.example.zolieapi.repository.DatingProfileRepository;
@@ -24,6 +25,7 @@ import com.example.zolieapi.security.AuthUser;
 import com.example.zolieapi.security.RateLimiter;
 import com.example.zolieapi.service.AccountService;
 import com.example.zolieapi.service.MediaService;
+import com.example.zolieapi.service.PlaceService;
 import com.google.firebase.auth.AuthErrorCode;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseAuthException;
@@ -47,6 +49,10 @@ public class AccountServiceImpl implements AccountService {
     private static final Pattern USERNAME = Pattern.compile("^[a-z0-9._]{3,30}$");
     private static final int MAX_DISPLAY_NAME = 50;
     private static final int MAX_BIO = 300;
+    private static final int MAX_CITY = 80;
+    private static final int MAX_WEBSITE = 200;
+    private static final Duration DELETION_GRACE = Duration.ofDays(30);
+    private static final Pattern WEBSITE = Pattern.compile("^(https?://)?[a-z0-9][a-z0-9.-]*\\.[a-z]{2,}(/[\\w\\-./?%&=#~+]*)?$", Pattern.CASE_INSENSITIVE);
     private static final String PHONE_EMAIL_DOMAIN = "@phone.zolie.app";
     private static final String UNKNOWN_EMAIL_DOMAIN = "@login.zolie.app";
 
@@ -54,6 +60,8 @@ public class AccountServiceImpl implements AccountService {
     private final NotificationPreferenceRepository preferenceRepository;
     private final DatingProfileRepository datingProfileRepository;
     private final MediaService mediaService;
+    private final PlaceService placeService;
+    private final SettingsMapper settingsMapper;
     private final RateLimiter rateLimiter;
     private final ObjectProvider<FirebaseAuth> firebaseAuth;
 
@@ -64,6 +72,7 @@ public class AccountServiceImpl implements AccountService {
         if (existing.isPresent()) {
             return toResponse(existing.get());
         }
+        rateLimiter.check("sync", authUser.firebaseUid(), 10, Duration.ofHours(1));
         String username = normalizeUsername(request.username());
         String email = emailOf(authUser);
         validateNewAccount(request, username, email);
@@ -82,9 +91,8 @@ public class AccountServiceImpl implements AccountService {
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public MeResponse getMe(UUID userId) {
-        userRepository.touchLastActive(userId);
         return toResponse(requireUser(userId));
     }
 
@@ -104,6 +112,22 @@ public class AccountServiceImpl implements AccountService {
         if (request.bio() != null) {
             user.setBio(Texts.clean(request.bio(), MAX_BIO, "bio"));
         }
+        if (request.khmerName() != null) {
+            user.setKhmerName(Texts.clean(request.khmerName(), MAX_DISPLAY_NAME, "khmerName"));
+        }
+        if (request.websiteUrl() != null) {
+            user.setWebsiteUrl(cleanWebsite(request.websiteUrl()));
+        }
+        if (request.city() != null) {
+            user.setCity(Texts.clean(request.city(), MAX_CITY, "city"));
+        }
+        if (request.coverMediaId() != null) {
+            mediaService.requireUsable(userId, request.coverMediaId(), MediaPurpose.PROFILE);
+            user.setCoverPhotoId(request.coverMediaId());
+        }
+        if (request.favoritePlaceIds() != null) {
+            placeService.replaceFavorites(userId, request.favoritePlaceIds());
+        }
         if (request.avatarMediaId() != null) {
             mediaService.requireUsable(userId, request.avatarMediaId(), MediaPurpose.PROFILE);
             user.setProfilePhotoId(request.avatarMediaId());
@@ -122,9 +146,48 @@ public class AccountServiceImpl implements AccountService {
         userRepository.releasePollVoteCounts(userId);
         userRepository.releasePostCommentCounts(userId);
         userRepository.releaseReelCommentCounts(userId);
+        userRepository.releaseCommentLikeCounts(userId);
+        userRepository.releaseEventGoingCounts(userId);
+        userRepository.releaseEventInterestedCounts(userId);
         userRepository.delete(user);
         userRepository.flush();
         deleteFirebaseAccount(user.getFirebaseUid());
+    }
+
+    @Override
+    @Transactional
+    public DeletionResponse requestDeletion(UUID userId, String reason) {
+        User user = requireUser(userId);
+        Instant now = Instant.now();
+        user.setDeletionRequestedAt(now);
+        user.setDeleteAfter(now.plus(DELETION_GRACE));
+        user.setDeletionReason(Texts.clean(reason, MAX_WEBSITE, "reason"));
+        return new DeletionResponse(user.getDeleteAfter());
+    }
+
+    @Override
+    @Transactional
+    public void cancelDeletion(UUID userId) {
+        User user = requireUser(userId);
+        user.setDeletionRequestedAt(null);
+        user.setDeleteAfter(null);
+        user.setDeletionReason(null);
+    }
+
+    @Override
+    @Transactional
+    public void revokeOtherSessions(UUID userId) {
+        User user = requireUser(userId);
+        FirebaseAuth auth = firebaseAuth.getIfAvailable();
+        if (auth == null) {
+            return;
+        }
+        try {
+            auth.revokeRefreshTokens(user.getFirebaseUid());
+        } catch (FirebaseAuthException e) {
+            log.error("Could not revoke sessions: code={}", e.getAuthErrorCode());
+            throw new ApiException(ErrorCode.INTERNAL_ERROR);
+        }
     }
 
     @Override
@@ -145,6 +208,14 @@ public class AccountServiceImpl implements AccountService {
                 .map(User::getEmail)
                 .orElse(normalized.replaceAll("[^a-z0-9._]", "") + UNKNOWN_EMAIL_DOMAIN);
         return new ResolveLoginResponse(email);
+    }
+
+    private String cleanWebsite(String websiteUrl) {
+        String cleaned = Texts.clean(websiteUrl, MAX_WEBSITE, "websiteUrl");
+        if (cleaned != null && !WEBSITE.matcher(cleaned).matches()) {
+            throw ApiException.rule("websiteUrl is not a valid link.");
+        }
+        return cleaned;
     }
 
     private void validateNewAccount(SyncRequest request, String username, String email) {
@@ -211,17 +282,33 @@ public class AccountServiceImpl implements AccountService {
     }
 
     private MeResponse toResponse(User user) {
-        SettingsResponse settings = new SettingsResponse(user.getAccountType() == AccountType.PRIVATE,
-                user.isShowOnlineStatus(), user.getTheme(), user.getLocale());
         String datingStatus = datingProfileRepository.findById(user.getId())
                 .map(DatingProfile::getStatus)
                 .map(Enums::value)
                 .orElse(null);
         DatingSummaryResponse dating = new DatingSummaryResponse(Ages.isAdult(user.getDateOfBirth()), datingStatus);
-        return new MeResponse(user.getId(), user.getUsername(), user.getDisplayName(), user.getBio(),
-                mediaService.url(user.getProfilePhotoId()), user.getEmail(), Enums.value(user.getAccountType()),
-                Enums.value(user.getRole()), Enums.value(user.getStatus()), Ages.group(user.getDateOfBirth()),
-                user.getFollowerCount(), user.getFollowingCount(), user.getPostCount(), settings, dating,
+        return new MeResponse(
+                user.getId(),
+                user.getUsername(),
+                user.getDisplayName(),
+                user.getKhmerName(),
+                user.getBio(),
+                user.getWebsiteUrl(),
+                user.getCity(),
+                mediaService.url(user.getProfilePhotoId()),
+                mediaService.url(user.getCoverPhotoId()),
+                user.getEmail(),
+                Enums.value(user.getAccountType()),
+                Enums.value(user.getRole()),
+                Enums.value(user.getStatus()),
+                Ages.group(user.getDateOfBirth()),
+                user.getFollowerCount(),
+                user.getFollowingCount(),
+                user.getPostCount(),
+                placeService.favoritesOf(user.getId()),
+                settingsMapper.toResponse(user),
+                dating,
+                user.getDeleteAfter(),
                 user.getCreatedAt());
     }
 }

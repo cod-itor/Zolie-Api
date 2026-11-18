@@ -3,6 +3,7 @@ package com.example.zolieapi.service.impl;
 import com.example.zolieapi.exception.ApiException;
 import com.example.zolieapi.model.User;
 import com.example.zolieapi.model.enums.AccountStatus;
+import com.example.zolieapi.model.enums.AudienceRule;
 import com.example.zolieapi.model.enums.FollowStatus;
 import com.example.zolieapi.model.id.FollowId;
 import com.example.zolieapi.repository.BlockRepository;
@@ -54,6 +55,15 @@ public class VisibilityServiceImpl implements VisibilityService {
         if (!canSeeContentOf(viewerId, authorId)) {
             throw ApiException.notFound();
         }
+    }
+
+    @Override
+    public boolean allows(AudienceRule rule, UUID ownerId, UUID actorId) {
+        return switch (rule) {
+            case EVERYONE -> true;
+            case FOLLOWERS -> isAcceptedFollower(actorId, ownerId);
+            case NOBODY -> false;
+        };
     }
 
     @Override

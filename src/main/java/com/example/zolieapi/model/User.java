@@ -2,6 +2,7 @@ package com.example.zolieapi.model;
 
 import com.example.zolieapi.model.enums.AccountStatus;
 import com.example.zolieapi.model.enums.AccountType;
+import com.example.zolieapi.model.enums.AudienceRule;
 import com.example.zolieapi.model.enums.UserRole;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -88,4 +89,34 @@ public class User {
     private Instant updatedAt;
 
     private Instant deletedAt;
+
+    private String khmerName;
+
+    private String websiteUrl;
+
+    private String city;
+
+    private UUID coverPhotoId;
+
+    private boolean dataSaver;
+
+    @Builder.Default
+    private boolean readReceipts = true;
+
+    @Builder.Default
+    private AudienceRule whoCanMessage = AudienceRule.EVERYONE;
+
+    @Builder.Default
+    private AudienceRule whoCanMention = AudienceRule.EVERYONE;
+
+    @Builder.Default
+    private AudienceRule storyRepliesFrom = AudienceRule.EVERYONE;
+
+    private boolean hideDatingFromFollowing;
+
+    private Instant deletionRequestedAt;
+
+    private Instant deleteAfter;
+
+    private String deletionReason;
 }

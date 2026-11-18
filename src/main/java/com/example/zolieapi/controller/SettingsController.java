@@ -3,6 +3,7 @@ package com.example.zolieapi.controller;
 import com.example.zolieapi.dto.request.DeviceRequest;
 import com.example.zolieapi.dto.request.NotificationPreferencesRequest;
 import com.example.zolieapi.dto.request.UpdateSettingsRequest;
+import com.example.zolieapi.dto.response.DeviceResponse;
 import com.example.zolieapi.dto.response.NotificationPreferencesResponse;
 import com.example.zolieapi.dto.response.SettingsResponse;
 import com.example.zolieapi.security.CurrentUser;
@@ -10,6 +11,7 @@ import com.example.zolieapi.service.SettingsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -61,7 +63,13 @@ public class SettingsController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Save or refresh this phone's push token")
     public void registerDevice(@Valid @RequestBody DeviceRequest request) {
-        settingsService.registerDevice(currentUser.id(), request.token());
+        settingsService.registerDevice(currentUser.id(), request.token(), request.deviceName());
+    }
+
+    @GetMapping("/devices")
+    @Operation(summary = "List the phones I am logged in on")
+    public List<DeviceResponse> listDevices() {
+        return settingsService.listDevices(currentUser.id());
     }
 
     @DeleteMapping("/devices/{token}")

@@ -1,5 +1,7 @@
 package com.example.zolieapi.dto.response;
 
+import java.time.Instant;
+
 public record NotificationPreferencesResponse(
         boolean follows,
         boolean likes,
@@ -7,6 +9,8 @@ public record NotificationPreferencesResponse(
         boolean mentions,
         boolean matches,
         boolean messages,
-        boolean storyInteractions
+        boolean storyInteractions,
+        boolean events,
+        Instant pausedUntil
 ) {
 }
